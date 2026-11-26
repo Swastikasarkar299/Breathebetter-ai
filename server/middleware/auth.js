@@ -1,13 +1,17 @@
+import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
 
-const DEV_FALLBACK_SECRET = 'breathebetter-dev-local-jwt-secret-change-in-prod';
+const EPHEMERAL_RUNTIME_SECRET = crypto.randomBytes(32).toString('hex');
+const DEV_LOCAL_SECRET = 'breathebetter-dev-local-jwt-secret';
 
 function getSecret() {
-  if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
-  if (process.env.NODE_ENV === 'production') {
-    console.warn('[Auth] JWT_SECRET not set in production environment — using ephemeral fallback.');
+  if (process.env.JWT_SECRET && process.env.JWT_SECRET.trim().length >= 16) {
+    return process.env.JWT_SECRET.trim();
   }
-  return DEV_FALLBACK_SECRET;
+  if (process.env.NODE_ENV === 'production' || process.env.VERCEL) {
+    return EPHEMERAL_RUNTIME_SECRET;
+  }
+  return DEV_LOCAL_SECRET;
 }
 
 export function signToken(user) {

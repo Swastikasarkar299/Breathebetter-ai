@@ -5,6 +5,7 @@ import {
 import {
   indoorTips, getAqiCategory, getDynamicVentilationSchedule,
 } from '../data/mockData';
+import { pm25ToUsAqi } from '../../shared/aqiUtils';
 
 const INDOOR_CHECKLIST_DEFAULT = [
   { id: 'ic1', task: 'Seal perimeter window gaps & close street-facing windows during rush hour', done: true },
@@ -20,22 +21,6 @@ const ROOM_SIZES = [
   { id: 'medium', label: 'Living Room (150–300 sq ft)', cadr: '250–360 m³/h', diy: 'True HEPA H13 unit or 2-filter box fan' },
   { id: 'large', label: 'Open Hall (300–500 sq ft)', cadr: '400–550 m³/h', diy: '4-filter Corsi-Rosenthal cube' },
 ];
-
-function pm25ToUsAqi(pm25 = 0) {
-  const c = Math.max(0, Number(pm25) || 0);
-  const bps = [
-    [0, 12.0, 0, 50],
-    [12.1, 35.4, 51, 100],
-    [35.5, 55.4, 101, 150],
-    [55.5, 150.4, 151, 200],
-    [150.5, 250.4, 201, 300],
-    [250.5, 500.4, 301, 500],
-  ];
-  for (const [cLo, cHi, iLo, iHi] of bps) {
-    if (c <= cHi) return Math.round(((iHi - iLo) / (cHi - cLo)) * (c - cLo) + iLo);
-  }
-  return 500;
-}
 
 export default function IndoorAir({ airQuality }) {
   const [activeSection, setActiveSection] = useState('ventilation');
@@ -95,9 +80,13 @@ export default function IndoorAir({ airQuality }) {
           </div>
 
           <div className="flex items-center gap-2 flex-shrink-0">
+            <label htmlFor="indoor-sensor-pm25" className="sr-only">
+              Enter home PM2.5 sensor reading in micrograms per cubic meter
+            </label>
             <div className="flex items-center gap-2 px-3 py-2 saas-input">
-              <Gauge size={14} style={{ color: 'var(--accent-teal)' }} />
+              <Gauge size={14} style={{ color: 'var(--accent-teal)' }} aria-hidden="true" />
               <input
+                id="indoor-sensor-pm25"
                 type="number"
                 min="0"
                 max="500"

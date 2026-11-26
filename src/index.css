@@ -9,8 +9,8 @@
   --bg-nav: rgba(255, 255, 255, 0.94);
   --text-primary: #0b1e3b;
   --text-secondary: #334155;
-  --text-muted: #64748b;
-  --text-faint: #94a3b8;
+  --text-muted: #475569;
+  --text-faint: #64748b;
   --border-subtle: rgba(11, 30, 59, 0.09);
   --border-accent: rgba(13, 148, 136, 0.28);
   --accent-navy: #0b1e3b;
@@ -35,7 +35,7 @@ html[data-theme="dark"] {
   --text-primary: #f1f5f9;
   --text-secondary: #cbd5e1;
   --text-muted: #94a3b8;
-  --text-faint: #64748b;
+  --text-faint: #94a3b8;
   --border-subtle: rgba(148, 163, 184, 0.16);
   --border-accent: rgba(20, 184, 166, 0.34);
   --accent-navy: #1e3a5f;
@@ -199,4 +199,48 @@ html[data-theme="dark"] .app-backdrop {
 .btn-brand:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Accessibility: Skip link, visible keyboard focus rings & reduced motion */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 8px;
+  z-index: 100;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: #0d9488;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.skip-link:focus {
+  left: 12px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent-teal);
+  outline-offset: 2px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

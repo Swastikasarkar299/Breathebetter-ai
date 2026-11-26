@@ -15,6 +15,9 @@ import {
 import { searchCities } from '../services/airQualityService';
 import { exportAirQualityCsv, openPrintableAirQualityReport } from '../utils/reportExport';
 import AQIGauge from './AQIGauge';
+import ChartTooltip from './ui/ChartTooltip';
+import StatusBanner from './ui/StatusBanner';
+import EmptyState from './ui/EmptyState';
 
 function getPollutantStatus(key, value) {
   const meta = POLLUTANT_META[key];
@@ -96,28 +99,6 @@ const WeatherMiniCard = ({ label, value, sub, Icon, accent }) => (
     </div>
   </div>
 );
-
-const CustomChartTooltip = ({ active, payload, label }) => {
-  if (!active || !payload?.length) return null;
-  return (
-    <div
-      className="p-3 rounded-xl text-xs shadow-lg"
-      style={{
-        background: 'var(--bg-surface-solid)',
-        border: '1px solid var(--border-subtle)',
-        color: 'var(--text-primary)',
-      }}
-    >
-      <div className="font-bold mb-1">{label}</div>
-      {payload.map((p, idx) => (
-        <div key={idx} className="flex items-center gap-2 font-medium" style={{ color: p.color || 'var(--accent-teal)' }}>
-          <span>{p.name}:</span>
-          <strong>{p.value}</strong>
-        </div>
-      ))}
-    </div>
-  );
-};
 
 const DashboardSkeleton = () => (
   <div className="space-y-5">
@@ -291,10 +272,12 @@ export default function Dashboard({
 
         <div className="flex items-center gap-2 flex-wrap">
           <div className="relative" ref={searchBoxRef}>
-            <form onSubmit={handleSearchSubmit} className="flex items-center gap-1.5">
+            <form onSubmit={handleSearchSubmit} className="flex items-center gap-1.5" role="search" aria-label="Search city air quality">
+              <label htmlFor="dashboard-city-search" className="sr-only">Search city worldwide</label>
               <div className="flex items-center gap-2 px-3 py-2 rounded-xl saas-input">
-                <Search size={14} style={{ color: 'var(--text-faint)' }} />
+                <Search size={14} style={{ color: 'var(--text-faint)' }} aria-hidden="true" />
                 <input
+                  id="dashboard-city-search"
                   type="text"
                   value={searchText}
                   onFocus={() => setShowDropdown(true)}
@@ -443,25 +426,28 @@ export default function Dashboard({
         })}
       </div>
 
+      {airQuality.isStale && (
+        <StatusBanner
+          variant="warning"
+          title="Cached Reading:"
+          message={airQuality.staleReason || 'Showing last verified snapshot while live API reconnects.'}
+          action={
+            <button onClick={onRefresh} className="px-3 py-1 rounded-lg text-xs font-semibold" style={{ background: 'var(--bg-surface-solid)', color: 'var(--accent-teal)' }}>
+              Retry Now
+            </button>
+          }
+        />
+      )}
+
       {isLoadingCity ? (
         <DashboardSkeleton />
       ) : !airQuality.isLive ? (
-        <div className="surface-card p-8 text-center space-y-4">
-          <div className="w-12 h-12 rounded-2xl mx-auto flex items-center justify-center bg-amber-500/15 text-amber-500">
-            <AlertCircle size={24} />
-          </div>
-          <div>
-            <h3 className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>
-              Live Measurements Unavailable for {airQuality.location}
-            </h3>
-            <p className="text-xs mt-1 max-w-md mx-auto" style={{ color: 'var(--text-muted)' }}>
-              {apiError || 'Network or upstream air-quality API could not be reached. BreatheBetter AI does not display fabricated numbers as live measurements.'}
-            </p>
-          </div>
-          <button onClick={onRefresh} className="btn-brand px-4 py-2 text-xs inline-flex items-center gap-1.5">
-            <RefreshCw size={13} /> Retry Live Fetch
-          </button>
-        </div>
+        <EmptyState
+          title={`Live Measurements Unavailable for ${airQuality.location}`}
+          description={apiError || 'Network or upstream air-quality API could not be reached. BreatheBetter AI never displays fabricated numbers as live measurements.'}
+          onRetry={onRefresh}
+          retryLabel="Retry Live Fetch"
+        />
       ) : (
         <>
           {/* Primary Grid: Gauge + Full Weather + 6 Pollutants */}
@@ -648,47 +634,51 @@ export default function Dashboard({
               </div>
 
               {view === 'comparison' ? (
-                <ResponsiveContainer width="100%" height={230}>
-                  <BarChart data={pollutantComparisonData} margin={{ top: 10, right: 12, left: -12, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
-                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'var(--chart-axis)' }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 11, fill: 'var(--chart-axis)' }} axisLine={false} tickLine={false} unit="%" />
-                    <Tooltip content={<CustomChartTooltip />} />
-                    <ReferenceLine y={100} stroke="#10b981" strokeDasharray="4 4" label={{ value: 'WHO 100%', fill: '#10b981', fontSize: 10, position: 'insideTopRight' }} />
-                    <Bar dataKey="whoPct" name="% of WHO Guideline" radius={[6, 6, 0, 0]}>
-                      {pollutantComparisonData.map((entry, idx) => (
-                        <Cell key={idx} fill={entry.whoPct <= 100 ? '#10b981' : entry.whoPct <= 220 ? '#f59e0b' : '#ef4444'} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+                <div role="img" aria-label={`Pollutant concentration bar chart compared to WHO 2021 guidelines for ${airQuality.location}`}>
+                  <ResponsiveContainer width="100%" height={230}>
+                    <BarChart data={pollutantComparisonData} margin={{ top: 10, right: 12, left: -12, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+                      <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'var(--chart-axis)' }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 11, fill: 'var(--chart-axis)' }} axisLine={false} tickLine={false} unit="%" />
+                      <Tooltip content={<ChartTooltip />} />
+                      <ReferenceLine y={100} stroke="#10b981" strokeDasharray="4 4" label={{ value: 'WHO 100%', fill: '#10b981', fontSize: 10, position: 'insideTopRight' }} />
+                      <Bar dataKey="whoPct" name="% of WHO Guideline" radius={[6, 6, 0, 0]}>
+                        {pollutantComparisonData.map((entry, idx) => (
+                          <Cell key={idx} fill={entry.whoPct <= 100 ? '#10b981' : entry.whoPct <= 220 ? '#f59e0b' : '#ef4444'} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
               ) : (
-                <ResponsiveContainer width="100%" height={230}>
-                  <AreaChart data={chartData} margin={{ top: 10, right: 12, left: -16, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="aqiDashGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#0d9488" stopOpacity={0.32} />
-                        <stop offset="95%" stopColor="#0d9488" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
-                    <XAxis dataKey={xKey} tick={{ fontSize: 11, fill: 'var(--chart-axis)' }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 11, fill: 'var(--chart-axis)' }} axisLine={false} tickLine={false} />
-                    <Tooltip content={<CustomChartTooltip />} />
-                    {preferences?.alertThreshold && (
-                      <ReferenceLine y={preferences.alertThreshold} stroke="#f59e0b" strokeDasharray="4 4" />
-                    )}
-                    <Area
-                      type="monotone"
-                      dataKey="aqi"
-                      name="US AQI"
-                      stroke="#0d9488"
-                      strokeWidth={2.5}
-                      fill="url(#aqiDashGrad)"
-                      dot={{ fill: '#0d9488', r: 3.5 }}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
+                <div role="img" aria-label={`${view === 'hourly' ? 'Hourly' : '7-day daily'} AQI trend chart for ${airQuality.location}`}>
+                  <ResponsiveContainer width="100%" height={230}>
+                    <AreaChart data={chartData} margin={{ top: 10, right: 12, left: -16, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="aqiDashGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#0d9488" stopOpacity={0.32} />
+                          <stop offset="95%" stopColor="#0d9488" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+                      <XAxis dataKey={xKey} tick={{ fontSize: 11, fill: 'var(--chart-axis)' }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 11, fill: 'var(--chart-axis)' }} axisLine={false} tickLine={false} />
+                      <Tooltip content={<ChartTooltip />} />
+                      {preferences?.alertThreshold && (
+                        <ReferenceLine y={preferences.alertThreshold} stroke="#f59e0b" strokeDasharray="4 4" />
+                      )}
+                      <Area
+                        type="monotone"
+                        dataKey="aqi"
+                        name="US AQI"
+                        stroke="#0d9488"
+                        strokeWidth={2.5}
+                        fill="url(#aqiDashGrad)"
+                        dot={{ fill: '#0d9488', r: 3.5 }}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
               )}
             </div>
 

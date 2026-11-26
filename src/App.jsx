@@ -8,6 +8,8 @@ import AuthModal from './components/AuthModal';
 import { getCityData, getAqiCategory, generateAlerts } from './data/mockData';
 import { fetchLiveCityAirQuality, fetchLiveByCoords } from './services/airQualityService';
 import { authApi, notificationsApi, getAuthToken, setAuthToken } from './services/apiClient';
+import { useTheme } from './hooks/useTheme';
+import { usePersistentState } from './hooks/usePersistentState';
 
 // Code-split page modules for faster initial load
 const Dashboard = lazy(() => import('./components/Dashboard'));
@@ -54,15 +56,6 @@ const PAGE_META = {
   },
 };
 
-function loadSaved(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
 const PageLoader = () => (
   <div className="space-y-4">
     <div className="surface-card p-6 space-y-3">
@@ -77,80 +70,38 @@ export default function App() {
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authModalMode, setAuthModalMode] = useState('login');
   const [authUser, setAuthUser] = useState(null);
-  const [savedLocations, setSavedLocations] = useState(() => loadSaved('bb_saved_locations', []));
+  const [savedLocations, setSavedLocations] = usePersistentState('bb_saved_locations', []);
+  const { theme, setTheme, toggleTheme } = useTheme('light');
 
-  const [theme, setTheme] = useState(() => {
-    try {
-      return localStorage.getItem('bb_theme') || 'light';
-    } catch {
-      return 'light';
-    }
+  const [userProfile, setUserProfile] = usePersistentState('bb_user_profile', {
+    name: 'Guest Explorer',
+    location: 'New Delhi, India',
+    type: 'Working Professional',
+    transport: 'Public Transport',
+    outdoorActivity: 'Moderately Active',
+    indoor: 'Apartment (small)',
+    budget: 'Medium (₹500–5000)',
   });
 
-  const [userProfile, setUserProfile] = useState(() =>
-    loadSaved('bb_user_profile', {
-      name: 'Guest Explorer',
-      location: 'New Delhi, India',
-      type: 'Working Professional',
-      transport: 'Public Transport',
-      outdoorActivity: 'Moderately Active',
-      indoor: 'Apartment (small)',
-      budget: 'Medium (₹500–5000)',
-    })
-  );
-
-  const [preferences, setPreferences] = useState(() =>
-    loadSaved('bb_preferences', {
-      aqiAlerts: true,
-      dailyReport: true,
-      weatherAlerts: true,
-      plannerReminders: true,
-      challengeAlerts: true,
-      alertThreshold: 150,
-      aqiStandard: 'US_EPA',
-      tempUnit: 'C',
-      language: 'en',
-      autoDetectLocation: false,
-    })
-  );
-
-  const [airQuality, setAirQuality] = useState(() => {
-    const base = getCityData(userProfile.location || 'New Delhi, India');
-    return { ...base, aqi: null, pm25: null, pm10: null, isLive: false };
+  const [preferences, setPreferences] = usePersistentState('bb_preferences', {
+    aqiAlerts: true,
+    dailyReport: true,
+    weatherAlerts: true,
+    plannerReminders: true,
+    challengeAlerts: true,
+    alertThreshold: 150,
+    aqiStandard: 'US_EPA',
+    tempUnit: 'C',
+    language: 'en',
+    autoDetectLocation: false,
   });
+
+  const [airQuality, setAirQuality] = useState(() => getCityData(userProfile.location || 'New Delhi, India'));
   const [isLoadingCity, setIsLoadingCity] = useState(true);
   const [apiError, setApiError] = useState(null);
   const [storedNotifications, setStoredNotifications] = useState([]);
-  const [readDynamicIds, setReadDynamicIds] = useState(() => loadSaved('bb_read_dyn_alerts', []));
+  const [readDynamicIds, setReadDynamicIds] = usePersistentState('bb_read_dyn_alerts', []);
   const [clearedDynamic, setClearedDynamic] = useState(false);
-
-  // Sync light/dark theme attribute
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-    try {
-      localStorage.setItem('bb_theme', theme);
-    } catch {
-      // ignore
-    }
-  }, [theme]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('bb_user_profile', JSON.stringify(userProfile));
-    } catch {}
-  }, [userProfile]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('bb_preferences', JSON.stringify(preferences));
-    } catch {}
-  }, [preferences]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('bb_saved_locations', JSON.stringify(savedLocations));
-    } catch {}
-  }, [savedLocations]);
 
   // Restore authenticated session if token exists
   useEffect(() => {
@@ -175,7 +126,7 @@ export default function App() {
       .catch(() => {
         setAuthToken('');
       });
-  }, []);
+  }, [setPreferences, setSavedLocations, setUserProfile]);
 
   // Load persisted notifications from API
   const refreshNotifications = () => {
@@ -307,9 +258,7 @@ export default function App() {
 
   const handleMarkNotifRead = (id) => {
     if (dynamicAlerts.some((d) => d.id === id)) {
-      const next = [...readDynamicIds, id];
-      setReadDynamicIds(next);
-      try { localStorage.setItem('bb_read_dyn_alerts', JSON.stringify(next)); } catch {}
+      setReadDynamicIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
     } else {
       setStoredNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)));
       notificationsApi.markRead(id).catch(() => {});
@@ -317,9 +266,7 @@ export default function App() {
   };
 
   const handleMarkAllRead = () => {
-    const dynIds = dynamicAlerts.map((d) => d.id);
-    setReadDynamicIds(dynIds);
-    try { localStorage.setItem('bb_read_dyn_alerts', JSON.stringify(dynIds)); } catch {}
+    setReadDynamicIds(dynamicAlerts.map((d) => d.id));
     setStoredNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
     notificationsApi.markAllRead().catch(() => {});
   };
@@ -406,7 +353,15 @@ export default function App() {
 
   return (
     <div style={{ minHeight: '100vh', position: 'relative', display: 'flex', flexDirection: 'column' }}>
-      <div className="app-backdrop" />
+      <a href="#main-content" className="skip-link">Skip to main content</a>
+      <div className="app-backdrop" aria-hidden="true" />
+      <div className="sr-only" aria-live="polite">
+        {isLoadingCity
+          ? `Loading live air quality for ${airQuality.location}`
+          : airQuality.isLive
+            ? `${airQuality.location} air quality index is ${airQuality.aqi}, ${cat.label}`
+            : `Live air quality unavailable for ${airQuality.location}`}
+      </div>
 
       <div style={{ position: 'relative', zIndex: 1, flex: 1, display: 'flex', flexDirection: 'column' }}>
         <Navbar
@@ -415,7 +370,7 @@ export default function App() {
           airQuality={airQuality}
           onSelectCity={fetchCityAirQuality}
           theme={theme}
-          onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+          onToggleTheme={toggleTheme}
           notifications={combinedNotifications}
           onMarkNotifRead={handleMarkNotifRead}
           onMarkAllRead={handleMarkAllRead}
@@ -431,7 +386,7 @@ export default function App() {
           onLogout={handleLogout}
         />
 
-        <main className="max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 flex-1">
+        <main id="main-content" tabIndex={-1} className="max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 flex-1 focus:outline-none">
           {/* Page Header */}
           <div className="mb-5 flex flex-col sm:flex-row sm:items-end justify-between gap-3 animate-fade-in-up">
             <div>

@@ -54,8 +54,20 @@ export default function Navbar({
         setAccountOpen(false);
       }
     };
+    const handleEscape = (e) => {
+      if (e.key === 'Escape') {
+        setNotifOpen(false);
+        setCityOpen(false);
+        setAccountOpen(false);
+        setMobileOpen(false);
+      }
+    };
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    window.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('keydown', handleEscape);
+    };
   }, []);
 
   useEffect(() => {
@@ -131,12 +143,19 @@ export default function Navbar({
             </button>
 
             {/* Desktop Navigation */}
-            <div className="hidden xl:flex items-center gap-0.5 p-1 rounded-2xl" style={{ background: 'var(--bg-subtle)' }}>
+            <div
+              className="hidden xl:flex items-center gap-0.5 p-1 rounded-2xl"
+              style={{ background: 'var(--bg-subtle)' }}
+              role="tablist"
+              aria-label="Primary navigation"
+            >
               {navItems.map(({ id, label, Icon }) => {
                 const active = activeTab === id;
                 return (
                   <button
                     key={id}
+                    role="tab"
+                    aria-selected={active}
                     onClick={() => setActiveTab(id)}
                     className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all duration-150"
                     style={
@@ -151,7 +170,7 @@ export default function Navbar({
                           }
                     }
                   >
-                    <Icon size={14} />
+                    <Icon size={14} aria-hidden="true" />
                     <span>{label}</span>
                   </button>
                 );
@@ -168,6 +187,9 @@ export default function Navbar({
                     setNotifOpen(false);
                     setAccountOpen(false);
                   }}
+                  aria-expanded={cityOpen}
+                  aria-haspopup="true"
+                  aria-label={`Selected city: ${airQuality.location}. Switch city`}
                   className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all"
                   style={{
                     background: 'var(--bg-subtle)',
@@ -319,7 +341,9 @@ export default function Navbar({
                     setCityOpen(false);
                     setAccountOpen(false);
                   }}
-                  aria-label="Notifications"
+                  aria-expanded={notifOpen}
+                  aria-haspopup="true"
+                  aria-label={`Notifications (${unreadCount} unread)`}
                   className="relative w-9 h-9 rounded-xl flex items-center justify-center transition-colors hover:bg-teal-500/10"
                   style={{
                     background: 'var(--bg-subtle)',

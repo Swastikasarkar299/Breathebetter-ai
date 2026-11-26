@@ -1,5 +1,6 @@
 import React from 'react';
 import { getAqiCategory } from '../data/mockData';
+import { ShieldCheck, AlertTriangle, ShieldAlert } from 'lucide-react';
 
 const SCALE_SEGMENTS = [
   { max: 50, color: '#10b981', label: 'Good' },
@@ -10,11 +11,12 @@ const SCALE_SEGMENTS = [
   { max: 500, color: '#8b5cf6', label: 'Hazardous' },
 ];
 
-export default function AQIGauge({ aqi = 100 }) {
-  const numericAqi = Math.max(0, Math.round(Number(aqi) || 0));
+export default function AQIGauge({ aqi = null }) {
+  const isAvailable = aqi != null && !Number.isNaN(Number(aqi));
+  const numericAqi = isAvailable ? Math.max(0, Math.round(Number(aqi))) : 0;
   const clamped = Math.min(numericAqi, 500);
-  const percentage = clamped / 500;
-  const category = getAqiCategory(numericAqi);
+  const percentage = isAvailable ? clamped / 500 : 0;
+  const category = getAqiCategory(isAvailable ? numericAqi : null);
 
   const radius = 84;
   const cx = 120;
@@ -52,10 +54,23 @@ export default function AQIGauge({ aqi = 100 }) {
     color: seg.color,
   }));
 
+  const StatusIcon = !isAvailable || numericAqi <= 100
+    ? ShieldCheck
+    : numericAqi <= 150
+      ? AlertTriangle
+      : ShieldAlert;
+
   return (
-    <div className="flex flex-col items-center">
-      <svg width="240" height="154" viewBox="0 0 240 154" className="overflow-visible">
-        {/* Track */}
+    <div
+      className="flex flex-col items-center"
+      role="img"
+      aria-label={
+        isAvailable
+          ? `US Air Quality Index is ${numericAqi}, rated ${category.label}. ${category.description}`
+          : 'Air quality measurement unavailable'
+      }
+    >
+      <svg width="240" height="154" viewBox="0 0 240 154" className="overflow-visible" aria-hidden="true">
         <path
           d={arcPath(startAngle, startAngle + totalAngle)}
           fill="none"
@@ -64,7 +79,6 @@ export default function AQIGauge({ aqi = 100 }) {
           strokeLinecap="round"
         />
 
-        {/* Subtle colored segments */}
         {segmentAngles.map((seg, i) => (
           <path
             key={i}
@@ -77,29 +91,29 @@ export default function AQIGauge({ aqi = 100 }) {
           />
         ))}
 
-        {/* Active fill */}
-        <path
-          d={arcPath(startAngle, currentAngle)}
-          fill="none"
-          stroke={category.color}
-          strokeWidth="14"
-          strokeLinecap="round"
-          style={{
-            transition: 'all 0.5s ease',
-            filter: `drop-shadow(0 0 8px ${category.color}55)`,
-          }}
-        />
+        {isAvailable && (
+          <>
+            <path
+              d={arcPath(startAngle, currentAngle)}
+              fill="none"
+              stroke={category.color}
+              strokeWidth="14"
+              strokeLinecap="round"
+              style={{
+                transition: 'all 0.5s ease',
+                filter: `drop-shadow(0 0 8px ${category.color}55)`,
+              }}
+            />
+            <polygon
+              points={`${needleTip.x},${needleTip.y} ${needleBase1.x},${needleBase1.y} ${needleBase2.x},${needleBase2.y}`}
+              fill={category.color}
+              style={{ transition: 'all 0.45s ease' }}
+            />
+            <circle cx={cx} cy={cy} r="9" fill="var(--bg-surface-solid)" stroke={category.color} strokeWidth="3" />
+            <circle cx={cx} cy={cy} r="3.5" fill={category.color} />
+          </>
+        )}
 
-        {/* Needle */}
-        <polygon
-          points={`${needleTip.x},${needleTip.y} ${needleBase1.x},${needleBase1.y} ${needleBase2.x},${needleBase2.y}`}
-          fill={category.color}
-          style={{ transition: 'all 0.45s ease' }}
-        />
-        <circle cx={cx} cy={cy} r="9" fill="var(--bg-surface-solid)" stroke={category.color} strokeWidth="3" />
-        <circle cx={cx} cy={cy} r="3.5" fill={category.color} />
-
-        {/* Readout */}
         <text
           x={cx}
           y={cy + 30}
@@ -109,16 +123,9 @@ export default function AQIGauge({ aqi = 100 }) {
           fill={category.color}
           style={{ letterSpacing: '-0.03em' }}
         >
-          {numericAqi}
+          {isAvailable ? numericAqi : 'N/A'}
         </text>
-        <text
-          x={cx}
-          y={cy + 46}
-          textAnchor="middle"
-          fontSize="11"
-          fontWeight="600"
-          fill="var(--text-muted)"
-        >
+        <text x={cx} y={cy + 46} textAnchor="middle" fontSize="11" fontWeight="600" fill="var(--text-muted)">
           US AQI SCALE
         </text>
 
@@ -126,11 +133,20 @@ export default function AQIGauge({ aqi = 100 }) {
         <text x="202" y="132" fontSize="10" fontWeight="600" fill="var(--text-faint)">500</text>
       </svg>
 
+      {/* Text + Icon Accessible Category Pill */}
+      <div
+        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold mt-1 mb-2"
+        style={{ background: category.bg, color: category.color }}
+      >
+        <StatusIcon size={13} aria-hidden="true" />
+        <span>{category.label}</span>
+      </div>
+
       {/* Compact Legend */}
-      <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 mt-1">
+      <div className="flex flex-wrap justify-center gap-x-3 gap-y-1">
         {SCALE_SEGMENTS.map((s) => (
           <div key={s.label} className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full" style={{ background: s.color }} />
+            <span className="w-2 h-2 rounded-full" style={{ background: s.color }} aria-hidden="true" />
             <span className="text-[11px] font-medium" style={{ color: 'var(--text-muted)' }}>
               {s.label}
             </span>

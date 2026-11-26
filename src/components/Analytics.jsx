@@ -10,6 +10,7 @@ import {
 import { analyticsApi } from '../services/apiClient';
 import { getAqiCategory, POLLUTANT_META, aqiCategories } from '../data/mockData';
 import { exportAirQualityCsv, openPrintableAirQualityReport } from '../utils/reportExport';
+import ChartTooltip from './ui/ChartTooltip';
 
 const DEFAULT_COMPARE_CITIES = [
   'New Delhi, India',
@@ -17,18 +18,6 @@ const DEFAULT_COMPARE_CITIES = [
   'Bengaluru, India',
   'London, UK',
 ];
-
-const ChartTooltip = ({ active, payload, label }) => {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="p-2.5 rounded-xl text-xs shadow-lg" style={{ background: 'var(--bg-surface-solid)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)' }}>
-      <div className="font-bold mb-1">{label}</div>
-      {payload.map((p, i) => (
-        <div key={i} style={{ color: p.color }}>{p.name}: {p.value}</div>
-      ))}
-    </div>
-  );
-};
 
 // Equirectangular geo projection onto SVG viewBox
 function projectCoords(lat, lon, region = 'global') {
@@ -480,7 +469,16 @@ export default function Analytics({ airQuality, onSelectCity }) {
                       key={st.city}
                       transform={`translate(${pt.x}, ${pt.y})`}
                       onClick={() => setSelectedStation(st)}
-                      className="cursor-pointer"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setSelectedStation(st);
+                        }
+                      }}
+                      tabIndex={0}
+                      role="button"
+                      aria-label={`${st.city}, AQI ${st.aqi ?? 'unavailable'}, category ${c.label}`}
+                      className="cursor-pointer focus:outline-none"
                     >
                       <circle r={active ? 18 : 13} fill={st.isLive ? c.color : '#94a3b8'} opacity="0.22" />
                       <circle r={active ? 11 : 8} fill={st.isLive ? c.color : '#94a3b8'} stroke="#ffffff" strokeWidth="2" />

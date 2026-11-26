@@ -14,6 +14,15 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, initialMode 
   const [error, setError] = useState('');
   const [infoMsg, setInfoMsg] = useState('');
 
+  React.useEffect(() => {
+    if (!isOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const clearFeedback = () => {
@@ -59,7 +68,13 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, initialMode 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(15, 23, 42, 0.58)', backdropFilter: 'blur(6px)' }}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(15, 23, 42, 0.58)', backdropFilter: 'blur(6px)' }}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="auth-modal-title"
+    >
       <div
         className="w-full max-w-md p-6 rounded-2xl shadow-2xl space-y-4 relative animate-fade-in-up"
         style={{ background: 'var(--bg-surface-solid)', border: '1px solid var(--border-subtle)' }}
@@ -70,14 +85,14 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, initialMode 
           className="absolute right-4 top-4 p-1.5 rounded-lg hover:bg-slate-500/10"
           style={{ color: 'var(--text-muted)' }}
         >
-          <X size={18} />
+          <X size={18} aria-hidden="true" />
         </button>
 
         <div>
           <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--accent-teal)' }}>
             BreatheBetter Account
           </span>
-          <h2 className="text-xl font-extrabold mt-0.5" style={{ color: 'var(--text-primary)' }}>
+          <h2 id="auth-modal-title" className="text-xl font-extrabold mt-0.5" style={{ color: 'var(--text-primary)' }}>
             {mode === 'login' && 'Sign in to your account'}
             {mode === 'register' && 'Create your free account'}
             {mode === 'forgot' && 'Recover your password'}
