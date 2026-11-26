@@ -1,71 +1,31 @@
 import React, { useState, useEffect } from 'react';
 import {
-  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  BarChart, Bar, Cell, CartesianGrid,
+  AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts';
-import {
-  Car, Fuel, Leaf, CheckCircle2, Plus, Info, TrainFront, Bike, Bus,
-} from 'lucide-react';
-import { ecoImpactData } from '../data/mockData';
+import { Car, Zap, Leaf, CheckCircle2, Plus, Info, Trash2 } from 'lucide-react';
+import { ecoApi } from '../services/apiClient';
 
-const DEFAULT_ACTIONS = [
-  { id: 1, action: 'Used metro / public transit instead of private car', days: 4, co2: 7.4, trips: 4, done: true },
-  { id: 2, action: 'Avoided all open leaf or garden waste burning', days: 7, co2: 4.5, trips: 0, done: true },
-  { id: 3, action: 'Combined multiple errands into a single trip', days: 2, co2: 2.1, trips: 2, done: true },
-  { id: 4, action: 'Walked or cycled for short neighborhood trips (<3 km)', days: 3, co2: 2.2, trips: 3, done: true },
-  { id: 5, action: 'Chose low-emission plant-forward meals', days: 5, co2: 2.9, trips: 0, done: true },
-  { id: 6, action: 'Carpooled for work or campus commute', days: 1, co2: 1.8, trips: 1, done: false },
-];
-
-// Emission factors in kg CO2 per passenger-km (standard DEFRA / EPA estimates)
-const COMMUTE_MODES = [
-  { id: 'car', label: 'Solo Petrol Car', kgPerKm: 0.192, Icon: Car, color: '#ef4444' },
-  { id: 'bike', label: 'Two-Wheeler', kgPerKm: 0.084, Icon: Bike, color: '#f59e0b' },
-  { id: 'bus', label: 'Public Bus', kgPerKm: 0.052, Icon: Bus, color: '#0ea5e9' },
-  { id: 'metro', label: 'Metro / Electric Rail', kgPerKm: 0.028, Icon: TrainFront, color: '#0d9488' },
-  { id: 'walk', label: 'Walk / Bicycle', kgPerKm: 0.0, Icon: Leaf, color: '#10b981' },
-];
-
-const EcoScoreRing = ({ score }) => {
-  const circumference = 2 * Math.PI * 52;
-  const dash = (Math.min(100, score) / 100) * circumference;
-  const color = score >= 80 ? '#10b981' : score >= 60 ? '#0d9488' : score >= 40 ? '#f59e0b' : '#ef4444';
-
-  return (
-    <div className="relative w-36 h-36 flex items-center justify-center">
-      <svg width="144" height="144" className="-rotate-90">
-        <circle cx="72" cy="72" r="52" fill="none" stroke="var(--border-subtle)" strokeWidth="11" />
-        <circle
-          cx="72"
-          cy="72"
-          r="52"
-          fill="none"
-          stroke={color}
-          strokeWidth="11"
-          strokeDasharray={`${dash} ${circumference}`}
-          strokeLinecap="round"
-          style={{ transition: 'stroke-dasharray 0.5s ease' }}
-        />
-      </svg>
-      <div className="absolute text-center">
-        <div className="text-3xl font-black" style={{ color }}>{score}</div>
-        <div className="text-[11px] font-semibold" style={{ color: 'var(--text-muted)' }}>Eco Score</div>
-      </div>
-    </div>
-  );
+// Standard emission factors (DEFRA / EPA / CEA India average grid intensity)
+const TRANSPORT_FACTORS = {
+  car: { label: 'Private Car', petrol: 0.192, diesel: 0.171, hybrid: 0.115, ev: 0.058 },
+  two_wheeler: { label: 'Two-Wheeler', petrol: 0.084, diesel: 0.078, hybrid: 0.06, ev: 0.022 },
+  bus: { label: 'Public Bus', petrol: 0.052, diesel: 0.052, hybrid: 0.04, ev: 0.021 },
+  metro: { label: 'Metro / Rail', petrol: 0.028, diesel: 0.028, hybrid: 0.028, ev: 0.024 },
+  walk_cycle: { label: 'Walk / Bicycle', petrol: 0, diesel: 0, hybrid: 0, ev: 0 },
 };
+
+const ELECTRICITY_KG_PER_KWH = 0.71; // Typical regional grid emission factor
+
+const DAILY_CHALLENGES = [
+  { id: 'ch1', action: 'Replace 1 solo motorized trip with metro, bus, walk, or cycle', co2Kg: 2.4, tripsAvoided: 1 },
+  { id: 'ch2', action: 'Switch off standby appliances & set AC to 25°C', co2Kg: 1.4, tripsAvoided: 0 },
+  { id: 'ch3', action: 'Zero open waste/leaf burning in neighborhood today', co2Kg: 3.0, tripsAvoided: 0 },
+];
 
 const ChartTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
   return (
-    <div
-      className="p-2.5 rounded-xl text-xs shadow-lg"
-      style={{
-        background: 'var(--bg-surface-solid)',
-        border: '1px solid var(--border-subtle)',
-        color: 'var(--text-primary)',
-      }}
-    >
+    <div className="p-2.5 rounded-xl text-xs shadow-lg" style={{ background: 'var(--bg-surface-solid)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)' }}>
       <div className="font-bold mb-1">{label}</div>
       {payload.map((p, i) => (
         <div key={i} style={{ color: p.color }}>{p.name}: {p.value}</div>
@@ -74,327 +34,326 @@ const ChartTooltip = ({ active, payload, label }) => {
   );
 };
 
-export default function EcoImpact({ onScoreChange }) {
-  const [activeMetric, setActiveMetric] = useState('score');
-  const [commuteKm, setCommuteKm] = useState(14);
-  const [actions, setActions] = useState(() => {
+export default function EcoImpact() {
+  const [distanceKm, setDistanceKm] = useState(14);
+  const [transportType, setTransportType] = useState('car');
+  const [vehicleFuel, setVehicleFuel] = useState('petrol');
+  const [dailyKwh, setDailyKwh] = useState(6);
+  const [progressView, setProgressView] = useState('weekly'); // weekly | monthly
+  const [logs, setLogs] = useState(() => {
     try {
-      const saved = localStorage.getItem('bb_eco_actions');
-      return saved ? JSON.parse(saved) : DEFAULT_ACTIONS;
-    } catch {
-      return DEFAULT_ACTIONS;
-    }
+      const saved = localStorage.getItem('bb_eco_logs');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
   });
-  const [extraTrips, setExtraTrips] = useState(() => {
-    try {
-      return Number(localStorage.getItem('bb_extra_trips') || 4);
-    } catch {
-      return 4;
-    }
-  });
-  const [newActionText, setNewActionText] = useState('');
+  const [customAction, setCustomAction] = useState('');
 
   useEffect(() => {
-    try {
-      localStorage.setItem('bb_eco_actions', JSON.stringify(actions));
-    } catch {
-      // ignore
-    }
-  }, [actions]);
+    ecoApi
+      .list()
+      .then((res) => {
+        if (Array.isArray(res?.logs)) {
+          setLogs(res.logs);
+          try { localStorage.setItem('bb_eco_logs', JSON.stringify(res.logs)); } catch {}
+        }
+      })
+      .catch(() => {});
+  }, []);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem('bb_extra_trips', String(extraTrips));
-    } catch {
-      // ignore
-    }
-  }, [extraTrips]);
-
-  const completed = actions.filter((a) => a.done);
-  const tripsAvoided = extraTrips + completed.reduce((sum, a) => sum + (a.trips || 0), 0);
-  const fuelSaved = Number((tripsAvoided * 8 * 0.07).toFixed(1));
-  const co2Avoided = Number(
-    (fuelSaved * 2.33 + completed.reduce((s, a) => s + (a.trips ? 0 : a.co2), 0)).toFixed(1)
-  );
-  const actionsCompleted = completed.reduce((sum, a) => sum + a.days, 0);
-  const ecoScore = Math.min(
-    100,
-    Math.round(35 + (completed.length / Math.max(1, actions.length)) * 45 + Math.min(20, tripsAvoided * 1.2))
-  );
-
-  useEffect(() => {
-    if (onScoreChange) onScoreChange(ecoScore);
-  }, [ecoScore, onScoreChange]);
-
-  const weeklyProgress = ecoImpactData.weeklyProgress.map((d, idx) =>
-    idx === ecoImpactData.weeklyProgress.length - 1
-      ? { ...d, score: ecoScore, co2: Number((co2Avoided / 6).toFixed(1)) }
-      : d
-  );
-
-  const toggleAction = (id) => {
-    setActions((prev) => prev.map((a) => (a.id === id ? { ...a, done: !a.done } : a)));
+  const persistLogs = (next) => {
+    setLogs(next);
+    try { localStorage.setItem('bb_eco_logs', JSON.stringify(next)); } catch {}
   };
 
-  const addCustomAction = (e) => {
-    e.preventDefault();
-    if (!newActionText.trim()) return;
-    setActions((prev) => [
-      {
-        id: Date.now(),
-        action: newActionText.trim(),
-        days: 1,
-        co2: 1.2,
-        trips: 1,
-        done: true,
-      },
-      ...prev,
-    ]);
-    setNewActionText('');
+  // Calculations
+  const factor = TRANSPORT_FACTORS[transportType]?.[vehicleFuel] ?? 0.192;
+  const dailyTravelCo2 = Number((distanceKm * factor).toFixed(2));
+  const dailyHomeCo2 = Number((dailyKwh * ELECTRICITY_KG_PER_KWH).toFixed(2));
+  const totalDailyCo2 = Number((dailyTravelCo2 + dailyHomeCo2).toFixed(2));
+
+  const metroDailyCo2 = Number((distanceKm * TRANSPORT_FACTORS.metro.ev).toFixed(2));
+  const potentialDailySavings = Math.max(0, Number((dailyTravelCo2 - metroDailyCo2).toFixed(2)));
+  const potentialMonthlySavings = Number((potentialDailySavings * 24).toFixed(1));
+
+  const loggedCo2Saved = Number(logs.reduce((s, l) => s + (Number(l.co2Kg) || 0), 0).toFixed(1));
+  const tripsAvoided = logs.reduce((s, l) => s + (Number(l.tripsAvoided) || 0), 0);
+
+  // Sustainability Score (0-100) derived transparently from low-carbon transport + electricity + logged actions
+  const transportScore = Math.max(10, Math.round(45 - factor * 180));
+  const energyScore = Math.max(5, Math.round(25 - Math.min(20, dailyKwh * 1.1)));
+  const actionBonus = Math.min(30, logs.length * 4);
+  const sustainabilityScore = Math.min(100, transportScore + energyScore + actionBonus);
+
+  const weeklySeries = [
+    { label: 'Mon', co2: Number((totalDailyCo2 * 1.05).toFixed(1)), saved: Number((potentialDailySavings * 0.4).toFixed(1)) },
+    { label: 'Tue', co2: Number((totalDailyCo2 * 0.98).toFixed(1)), saved: Number((potentialDailySavings * 0.6).toFixed(1)) },
+    { label: 'Wed', co2: Number((totalDailyCo2 * 0.92).toFixed(1)), saved: Number((potentialDailySavings * 0.8).toFixed(1)) },
+    { label: 'Thu', co2: totalDailyCo2, saved: Number((potentialDailySavings * 0.5).toFixed(1)) },
+    { label: 'Fri', co2: Number((totalDailyCo2 * 0.88).toFixed(1)), saved: Number((potentialDailySavings + loggedCo2Saved * 0.15).toFixed(1)) },
+    { label: 'Sat', co2: Number((dailyHomeCo2 + dailyTravelCo2 * 0.5).toFixed(1)), saved: Number((potentialDailySavings * 0.7).toFixed(1)) },
+    { label: 'Sun', co2: Number((dailyHomeCo2 + dailyTravelCo2 * 0.4).toFixed(1)), saved: Number((loggedCo2Saved * 0.2).toFixed(1)) },
+  ];
+
+  const monthlySeries = [
+    { label: 'Week 1', co2: Math.round(totalDailyCo2 * 7), saved: Math.round(potentialDailySavings * 3) },
+    { label: 'Week 2', co2: Math.round(totalDailyCo2 * 6.7), saved: Math.round(potentialDailySavings * 4) },
+    { label: 'Week 3', co2: Math.round(totalDailyCo2 * 6.4), saved: Math.round(potentialDailySavings * 5) },
+    { label: 'Week 4', co2: Math.round(totalDailyCo2 * 6.1), saved: Math.round(potentialDailySavings * 5 + loggedCo2Saved) },
+  ];
+
+  const logEcoAction = async (entry) => {
+    try {
+      const res = await ecoApi.create({
+        ...entry,
+        distanceKm,
+        transportMode: TRANSPORT_FACTORS[transportType].label,
+      });
+      if (res?.log) {
+        persistLogs([res.log, ...logs]);
+        return;
+      }
+    } catch {}
+    persistLogs([{ id: `local-${Date.now()}`, ...entry, createdAt: new Date().toISOString() }, ...logs]);
   };
 
-  const carDailyCo2 = Number((commuteKm * 0.192).toFixed(2));
-  const metroDailyCo2 = Number((commuteKm * 0.028).toFixed(2));
-  const annualTransitSavingsKg = Math.round((carDailyCo2 - metroDailyCo2) * 240);
+  const deleteLog = async (id) => {
+    persistLogs(logs.filter((l) => l.id !== id));
+    if (!String(id).startsWith('local-')) {
+      ecoApi.remove(id).catch(() => {});
+    }
+  };
 
   return (
     <div className="space-y-5">
-      {/* Header & Methodology Notice */}
-      <div className="surface-card p-5 space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
-              Personal Pollution & Carbon Impact Tracker
-            </h2>
-            <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
-              Track low-emission habits and compare daily transit carbon footprints.
-            </p>
-          </div>
-          <button
-            onClick={() => setExtraTrips((t) => t + 1)}
-            className="btn-brand px-4 py-2 text-xs flex items-center gap-1.5 self-start sm:self-auto"
-          >
-            <Plus size={14} /> Log Avoided Car Trip
-          </button>
+      {/* Interactive Carbon Footprint Calculator */}
+      <div className="surface-card p-5 space-y-5">
+        <div>
+          <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
+            Interactive Carbon Footprint & Savings Calculator
+          </h2>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+            Enter your commute distance, vehicle type, and daily electricity usage to estimate emissions and savings potential.
+          </p>
         </div>
 
-        <div
-          className="p-3 rounded-xl flex items-start gap-2 text-xs"
-          style={{ background: 'rgba(14, 165, 233, 0.08)', color: 'var(--text-secondary)' }}
-        >
-          <Info size={15} className="text-sky-500 flex-shrink-0 mt-0.5" />
-          <span>
-            <strong>Estimated Values Methodology:</strong> Fuel saved = trips avoided × 8 km avg trip × 0.07 L/km. CO₂ avoided = fuel saved × 2.33 kg CO₂/L + logged non-transport eco actions.
-          </span>
-        </div>
-      </div>
-
-      {/* Big Impact Metrics */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { label: 'Car Trips Avoided', val: tripsAvoided, unit: 'trips', sub: 'Estimated weekly', Icon: Car, color: '#ef4444' },
-          { label: 'Fuel Conserved', val: fuelSaved, unit: 'L', sub: 'Estimated petrol eq.', Icon: Fuel, color: '#f59e0b' },
-          { label: 'CO₂ Emissions Avoided', val: co2Avoided, unit: 'kg', sub: 'Estimated reduction', Icon: Leaf, color: '#10b981' },
-          { label: 'Clean-Air Action Days', val: actionsCompleted, unit: 'days', sub: 'Saved locally', Icon: CheckCircle2, color: '#0d9488' },
-        ].map(({ label, val, unit, sub, Icon, color }) => (
-          <div key={label} className="surface-card p-4 flex items-start justify-between gap-3">
-            <div>
-              <div className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>{label}</div>
-              <div className="text-2xl font-black mt-1" style={{ color }}>
-                {val} <span className="text-xs font-semibold" style={{ color: 'var(--text-faint)' }}>{unit}</span>
-              </div>
-              <div className="text-[11px] mt-0.5" style={{ color: 'var(--text-faint)' }}>{sub}</div>
-            </div>
-            <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: `${color}18`, color }}>
-              <Icon size={17} />
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Commute Carbon Footprint Comparison Calculator */}
-      <div className="surface-card p-5 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <h3 className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>
-              Personal Commute Footprint Comparison
-            </h3>
-            <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
-              Switching a {commuteKm} km/day solo car commute to Metro/Rail avoids ~<strong>{annualTransitSavingsKg} kg CO₂/year</strong>.
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <label className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
-              Daily distance: <strong>{commuteKm} km</strong>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="p-3.5 rounded-xl space-y-2" style={{ background: 'var(--bg-subtle)' }}>
+            <label className="text-xs font-semibold block" style={{ color: 'var(--text-secondary)' }}>
+              Daily Travel Distance: <strong>{distanceKm} km</strong>
             </label>
             <input
               type="range"
-              min="2"
-              max="50"
-              value={commuteKm}
-              onChange={(e) => setCommuteKm(Number(e.target.value))}
-              className="accent-teal-600"
+              min="0"
+              max="80"
+              value={distanceKm}
+              onChange={(e) => setDistanceKm(Number(e.target.value))}
+              className="w-full accent-teal-600"
+            />
+          </div>
+
+          <div className="p-3.5 rounded-xl space-y-1.5" style={{ background: 'var(--bg-subtle)' }}>
+            <label className="text-xs font-semibold block" style={{ color: 'var(--text-secondary)' }}>Transport Type</label>
+            <select
+              value={transportType}
+              onChange={(e) => setTransportType(e.target.value)}
+              className="w-full px-3 py-1.5 text-xs saas-input"
+            >
+              {Object.entries(TRANSPORT_FACTORS).map(([k, v]) => (
+                <option key={k} value={k}>{v.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="p-3.5 rounded-xl space-y-1.5" style={{ background: 'var(--bg-subtle)' }}>
+            <label className="text-xs font-semibold block" style={{ color: 'var(--text-secondary)' }}>Vehicle Powertrain</label>
+            <select
+              value={vehicleFuel}
+              onChange={(e) => setVehicleFuel(e.target.value)}
+              disabled={transportType === 'walk_cycle'}
+              className="w-full px-3 py-1.5 text-xs saas-input disabled:opacity-50"
+            >
+              <option value="petrol">Petrol</option>
+              <option value="diesel">Diesel</option>
+              <option value="hybrid">Hybrid</option>
+              <option value="ev">Electric (EV)</option>
+            </select>
+          </div>
+
+          <div className="p-3.5 rounded-xl space-y-2" style={{ background: 'var(--bg-subtle)' }}>
+            <label className="text-xs font-semibold block" style={{ color: 'var(--text-secondary)' }}>
+              Home Energy Usage: <strong>{dailyKwh} kWh/day</strong>
+            </label>
+            <input
+              type="range"
+              min="1"
+              max="35"
+              value={dailyKwh}
+              onChange={(e) => setDailyKwh(Number(e.target.value))}
+              className="w-full accent-teal-600"
             />
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
-          {COMMUTE_MODES.map(({ id, label, kgPerKm, Icon, color }) => {
-            const dailyKg = (commuteKm * kgPerKm).toFixed(2);
-            const pct = Math.min(100, Math.round((kgPerKm / 0.192) * 100));
-            return (
-              <div key={id} className="p-3.5 rounded-xl space-y-2" style={{ background: 'var(--bg-subtle)' }}>
-                <div className="flex items-center gap-2">
-                  <Icon size={15} style={{ color }} />
-                  <span className="text-xs font-bold" style={{ color: 'var(--text-primary)' }}>{label}</span>
-                </div>
-                <div className="text-lg font-extrabold" style={{ color }}>
-                  {dailyKg} <span className="text-[11px] font-medium" style={{ color: 'var(--text-muted)' }}>kg CO₂/day</span>
-                </div>
-                <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--bg-surface-solid)' }}>
-                  <div className="h-full rounded-full" style={{ width: `${Math.max(4, pct)}%`, background: color }} />
-                </div>
-              </div>
-            );
-          })}
+        {/* Calculated Results */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="p-4 rounded-xl" style={{ background: 'var(--bg-subtle)' }}>
+            <div className="text-xs font-medium flex items-center gap-1.5" style={{ color: 'var(--text-muted)' }}>
+              <Car size={14} /> Daily Footprint (Est.)
+            </div>
+            <div className="text-2xl font-black mt-1 text-amber-500">{totalDailyCo2} kg CO₂</div>
+            <div className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
+              Travel {dailyTravelCo2} kg + Home {dailyHomeCo2} kg
+            </div>
+          </div>
+
+          <div className="p-4 rounded-xl" style={{ background: 'var(--bg-subtle)' }}>
+            <div className="text-xs font-medium flex items-center gap-1.5" style={{ color: 'var(--text-muted)' }}>
+              <Leaf size={14} /> Potential Monthly Savings
+            </div>
+            <div className="text-2xl font-black mt-1 text-emerald-500">{potentialMonthlySavings} kg</div>
+            <div className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
+              If switching commute to Electric Metro/Rail
+            </div>
+          </div>
+
+          <div className="p-4 rounded-xl" style={{ background: 'var(--bg-subtle)' }}>
+            <div className="text-xs font-medium flex items-center gap-1.5" style={{ color: 'var(--text-muted)' }}>
+              <CheckCircle2 size={14} /> Logged CO₂ Avoided
+            </div>
+            <div className="text-2xl font-black mt-1" style={{ color: 'var(--accent-teal)' }}>
+              {loggedCo2Saved} kg
+            </div>
+            <div className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
+              {tripsAvoided} solo trips avoided
+            </div>
+          </div>
+
+          <div className="p-4 rounded-xl" style={{ background: 'var(--bg-subtle)' }}>
+            <div className="text-xs font-medium flex items-center gap-1.5" style={{ color: 'var(--text-muted)' }}>
+              <Zap size={14} /> Sustainability Score
+            </div>
+            <div className="text-2xl font-black mt-1" style={{ color: 'var(--accent-cyan)' }}>
+              {sustainabilityScore} / 100
+            </div>
+            <div className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
+              Transport + energy + logged actions
+            </div>
+          </div>
+        </div>
+
+        <div className="p-3 rounded-xl flex items-start gap-2 text-xs" style={{ background: 'rgba(6, 182, 212, 0.08)', color: 'var(--text-secondary)' }}>
+          <Info size={15} className="text-cyan-500 flex-shrink-0 mt-0.5" />
+          <span>
+            <strong>Calculation Assumptions:</strong> Estimates use reference DEFRA/EPA passenger-km factors (e.g. Petrol Car ~0.192 kg CO₂/km, Two-Wheeler ~0.084 kg/km, Bus ~0.052 kg/km, Electric Metro ~0.024 kg/km) and average grid electricity intensity (~0.71 kg CO₂/kWh). All numbers are transparent estimates.
+          </span>
         </div>
       </div>
 
-      {/* Eco Score + Progress Charts */}
+      {/* Weekly & Monthly Progress Chart + Daily Eco Challenges */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        <div className="lg:col-span-4 surface-card p-5 flex flex-col items-center justify-between">
-          <div className="w-full text-left mb-2">
-            <h3 className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>Weekly Eco Score</h3>
-            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Updates live as actions are completed</p>
-          </div>
-          <EcoScoreRing score={ecoScore} />
-          <div className="grid grid-cols-3 gap-2 w-full mt-4 text-center text-xs">
-            <div className="p-2 rounded-xl" style={{ background: 'var(--bg-subtle)' }}>
-              <div className="font-bold" style={{ color: 'var(--accent-teal)' }}>
-                {Math.round((completed.length / actions.length) * 100)}%
-              </div>
-              <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>Completion</div>
-            </div>
-            <div className="p-2 rounded-xl" style={{ background: 'var(--bg-subtle)' }}>
-              <div className="font-bold text-emerald-500">
-                {completed.length}/{actions.length}
-              </div>
-              <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>Habits</div>
-            </div>
-            <div className="p-2 rounded-xl" style={{ background: 'var(--bg-subtle)' }}>
-              <div className="font-bold text-sky-500">{tripsAvoided}</div>
-              <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>Trips Saved</div>
-            </div>
-          </div>
-        </div>
-
-        <div className="lg:col-span-8 surface-card p-5">
-          <div className="flex items-center justify-between mb-4">
+        <div className="lg:col-span-7 surface-card p-5 space-y-4">
+          <div className="flex items-center justify-between">
             <div>
-              <h3 className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>Environmental Progress</h3>
-              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Weekly eco score & estimated CO₂ reduction</p>
+              <h3 className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>
+                {progressView === 'weekly' ? 'Weekly Footprint vs. Savings' : 'Monthly Emissions Trajectory'}
+              </h3>
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Estimated CO₂ emitted vs. avoided (kg)</p>
             </div>
-            <div className="flex gap-2">
-              {[
-                { id: 'score', label: 'Eco Score' },
-                { id: 'co2', label: 'CO₂ Avoided' },
-              ].map((m) => (
+            <div className="flex gap-1.5">
+              {['weekly', 'monthly'].map((v) => (
                 <button
-                  key={m.id}
-                  onClick={() => setActiveMetric(m.id)}
-                  className="px-3 py-1.5 rounded-xl text-xs font-semibold"
-                  style={
-                    activeMetric === m.id
-                      ? { background: 'linear-gradient(135deg, #0d9488, #0ea5e9)', color: '#fff' }
-                      : { background: 'var(--bg-subtle)', color: 'var(--text-secondary)' }
-                  }
+                  key={v}
+                  onClick={() => setProgressView(v)}
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold capitalize"
+                  style={progressView === v ? { background: 'linear-gradient(135deg, #0d9488, #0891b2)', color: '#fff' } : { background: 'var(--bg-subtle)', color: 'var(--text-secondary)' }}
                 >
-                  {m.label}
+                  {v}
                 </button>
               ))}
             </div>
           </div>
 
-          {activeMetric === 'score' ? (
-            <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={weeklyProgress} margin={{ top: 5, right: 10, left: -18, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="ecoScoreGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.32} />
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
+          <ResponsiveContainer width="100%" height={220}>
+            {progressView === 'weekly' ? (
+              <AreaChart data={weeklySeries} margin={{ top: 8, right: 10, left: -16, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
-                <XAxis dataKey="day" tick={{ fontSize: 11, fill: 'var(--chart-axis)' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: 'var(--chart-axis)' }} axisLine={false} tickLine={false} domain={[30, 100]} />
-                <Tooltip content={<ChartTooltip />} />
-                <Area type="monotone" dataKey="score" name="Eco Score" stroke="#10b981" strokeWidth={2.5} fill="url(#ecoScoreGrad)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          ) : (
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={weeklyProgress} margin={{ top: 5, right: 10, left: -18, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
-                <XAxis dataKey="day" tick={{ fontSize: 11, fill: 'var(--chart-axis)' }} axisLine={false} tickLine={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'var(--chart-axis)' }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 11, fill: 'var(--chart-axis)' }} axisLine={false} tickLine={false} />
                 <Tooltip content={<ChartTooltip />} />
-                <Bar dataKey="co2" name="CO₂ Avoided (kg)" radius={[6, 6, 0, 0]}>
-                  {weeklyProgress.map((_, i) => (
-                    <Cell key={i} fill={i === weeklyProgress.length - 1 ? '#0d9488' : 'rgba(16, 185, 129, 0.55)'} />
-                  ))}
-                </Bar>
+                <Area type="monotone" dataKey="co2" name="Est. Emitted (kg)" stroke="#f59e0b" fill="rgba(245,158,11,0.16)" strokeWidth={2} />
+                <Area type="monotone" dataKey="saved" name="Est. Saved (kg)" stroke="#10b981" fill="rgba(16,185,129,0.22)" strokeWidth={2.5} />
+              </AreaChart>
+            ) : (
+              <BarChart data={monthlySeries} margin={{ top: 8, right: 10, left: -16, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'var(--chart-axis)' }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: 'var(--chart-axis)' }} axisLine={false} tickLine={false} />
+                <Tooltip content={<ChartTooltip />} />
+                <Bar dataKey="co2" name="Est. Emitted (kg)" fill="#f59e0b" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="saved" name="Est. Saved (kg)" fill="#10b981" radius={[6, 6, 0, 0]} />
               </BarChart>
-            </ResponsiveContainer>
-          )}
+            )}
+          </ResponsiveContainer>
         </div>
-      </div>
 
-      {/* Interactive Checklist */}
-      <div className="surface-card p-5">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+        {/* Daily Eco Challenges & Logger */}
+        <div className="lg:col-span-5 surface-card p-5 space-y-4">
           <h3 className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>
-            Low-Emission Action Checklist
+            Daily Eco Challenges & Action Log
           </h3>
-          <form onSubmit={addCustomAction} className="flex gap-2">
+
+          <div className="space-y-2">
+            {DAILY_CHALLENGES.map((ch) => (
+              <div key={ch.id} className="p-3 rounded-xl flex items-center justify-between gap-2" style={{ background: 'var(--bg-subtle)' }}>
+                <div className="text-xs">
+                  <div className="font-semibold" style={{ color: 'var(--text-primary)' }}>{ch.action}</div>
+                  <div style={{ color: 'var(--text-muted)' }}>Est. -{ch.co2Kg} kg CO₂</div>
+                </div>
+                <button
+                  onClick={() => logEcoAction({ action: ch.action, co2Kg: ch.co2Kg, tripsAvoided: ch.tripsAvoided })}
+                  className="px-3 py-1.5 rounded-lg text-[11px] font-bold flex-shrink-0 btn-brand"
+                >
+                  Log
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!customAction.trim()) return;
+              logEcoAction({ action: customAction.trim(), co2Kg: 1.5, tripsAvoided: 1 });
+              setCustomAction('');
+            }}
+            className="flex gap-2"
+          >
             <input
-              type="text"
-              value={newActionText}
-              onChange={(e) => setNewActionText(e.target.value)}
-              placeholder="Add a custom eco action..."
-              className="px-3 py-1.5 text-xs saas-input w-52"
+              value={customAction}
+              onChange={(e) => setCustomAction(e.target.value)}
+              placeholder="Log custom sustainable action..."
+              className="flex-1 px-3 py-2 text-xs saas-input"
             />
-            <button type="submit" className="btn-brand px-3.5 py-1.5 text-xs">
-              Add
+            <button type="submit" className="btn-brand px-3 py-2 text-xs flex items-center gap-1">
+              <Plus size={13} /> Save
             </button>
           </form>
-        </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {actions.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => toggleAction(item.id)}
-              className="flex items-center justify-between gap-3 p-3.5 rounded-xl text-left transition-all"
-              style={{
-                background: item.done ? 'rgba(16, 185, 129, 0.08)' : 'var(--bg-subtle)',
-                border: `1px solid ${item.done ? 'rgba(16, 185, 129, 0.25)' : 'var(--border-subtle)'}`,
-              }}
-            >
-              <div>
-                <div className="text-xs sm:text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-                  {item.action}
+          {logs.length > 0 && (
+            <div className="space-y-1.5 max-h-36 overflow-y-auto pt-2 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+              {logs.map((l) => (
+                <div key={l.id} className="flex items-center justify-between text-xs px-2.5 py-1.5 rounded-lg" style={{ background: 'var(--bg-subtle)' }}>
+                  <span className="truncate pr-2" style={{ color: 'var(--text-secondary)' }}>{l.action}</span>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className="font-bold text-emerald-500">-{l.co2Kg} kg</span>
+                    <button onClick={() => deleteLog(l.id)} className="text-red-500 hover:opacity-80" title="Remove">
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
                 </div>
-                <div className="text-[11px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                  {item.days} day{item.days > 1 ? 's' : ''} · ~{item.co2} kg CO₂ est.
-                </div>
-              </div>
-              <CheckCircle2
-                size={18}
-                className="flex-shrink-0"
-                style={{ color: item.done ? '#10b981' : 'var(--text-faint)' }}
-              />
-            </button>
-          ))}
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

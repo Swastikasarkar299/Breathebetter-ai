@@ -1,364 +1,413 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Clock, Footprints, Bike, Dumbbell, Home, AlertTriangle, CheckCircle2,
-  ChevronDown, ChevronUp, Sun, Sunrise, Moon, Layers,
+  Clock, Footprints, Bike, Dumbbell, CheckCircle2, Plus, Pencil, Trash2,
+  Sun, Sunrise, Moon, CalendarDays, Calendar, Save, X, CloudSun,
 } from 'lucide-react';
 import {
   getDailyPlannerData, getRoutineTimeline, getAqiCategory, analyzeHourlyWindows,
 } from '../data/mockData';
+import { plannerApi } from '../services/apiClient';
 
 const CATEGORIES = [
-  { id: 'all', label: 'All Advice' },
-  { id: 'outdoor', label: 'Outdoor & Exercise' },
-  { id: 'travel', label: 'Walking & Commute' },
-  { id: 'indoor', label: 'Indoor Activities' },
-  { id: 'family', label: 'Family & Sensitive' },
-  { id: 'sustainable', label: 'Low-Emission' },
+  { id: 'outdoor', label: 'Outdoor' },
+  { id: 'travel', label: 'Commute' },
+  { id: 'indoor', label: 'Indoor' },
+  { id: 'sports', label: 'Sports / Exercise' },
+  { id: 'sustainable', label: 'Eco Action' },
 ];
-
-const PRIORITY_MAP = {
-  critical: { label: 'High Risk', color: '#ef4444', bg: 'rgba(239, 68, 68, 0.12)' },
-  high: { label: 'Recommended', color: '#f97316', bg: 'rgba(249, 115, 22, 0.12)' },
-  medium: { label: 'Moderate', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.12)' },
-  low: { label: 'Good Window', color: '#10b981', bg: 'rgba(16, 185, 129, 0.12)' },
-};
 
 const SuitabilityCard = ({ title, status, detail, Icon, color }) => (
   <div className="surface-card p-4 flex items-start gap-3">
-    <div
-      className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-      style={{ background: `${color}18`, color }}
-    >
+    <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: `${color}18`, color }}>
       <Icon size={18} />
     </div>
     <div className="min-w-0">
-      <div className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-faint)' }}>
-        {title}
-      </div>
+      <div className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-faint)' }}>{title}</div>
       <div className="text-sm font-bold mt-0.5" style={{ color }}>{status}</div>
       <div className="text-xs mt-0.5 leading-snug" style={{ color: 'var(--text-muted)' }}>{detail}</div>
     </div>
   </div>
 );
 
-export default function DailyPlanner({ airQuality, userProfile }) {
-  const [activeCategory, setActiveCategory] = useState('all');
-  const [activeView, setActiveView] = useState('cards');
-  const [expandedId, setExpandedId] = useState(null);
-  const [completedIds, setCompletedIds] = useState(() => {
+export default function DailyPlanner({ airQuality, userProfile, formatTemp }) {
+  const [scheduleView, setScheduleView] = useState('daily'); // daily | weekly
+  const [activities, setActivities] = useState(() => {
     try {
-      const saved = localStorage.getItem('bb_planner_done');
+      const saved = localStorage.getItem('bb_planner_activities');
       return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
     }
   });
+  const [newTitle, setNewTitle] = useState('');
+  const [newCategory, setNewCategory] = useState('outdoor');
+  const [newDate, setNewDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [newTime, setNewTime] = useState('07:30 AM');
+  const [todayStr] = useState(() => new Date().toISOString().slice(0, 10));
+  const [editingId, setEditingId] = useState(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editTime, setEditTime] = useState('');
+  const [statusNote, setStatusNote] = useState('');
 
-  useEffect(() => {
-    try {
-      localStorage.setItem('bb_planner_done', JSON.stringify(completedIds));
-    } catch {
-      // ignore
-    }
-  }, [completedIds]);
-
-  const cat = getAqiCategory(airQuality.aqi);
+  const aqi = airQuality.aqi ?? 100;
+  const cat = getAqiCategory(aqi);
   const win = analyzeHourlyWindows(airQuality);
-  const plannerItems = getDailyPlannerData(airQuality, userProfile);
-  const timeline = getRoutineTimeline(airQuality);
-  const aqi = airQuality.aqi;
+  const forecastCards = getDailyPlannerData(airQuality, userProfile);
+  const routineTimeline = getRoutineTimeline(airQuality);
 
-  const filtered =
-    activeCategory === 'all' ? plannerItems : plannerItems.filter((d) => d.category === activeCategory);
+  // Sync activities from DB backend
+  useEffect(() => {
+    plannerApi
+      .list()
+      .then((res) => {
+        if (Array.isArray(res?.activities)) {
+          setActivities(res.activities);
+          try { localStorage.setItem('bb_planner_activities', JSON.stringify(res.activities)); } catch {}
+        }
+      })
+      .catch(() => {
+        // Offline localStorage fallback preserved
+      });
+  }, []);
 
-  const toggleDone = (id, e) => {
-    e.stopPropagation();
-    setCompletedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const persistLocal = (next) => {
+    setActivities(next);
+    try { localStorage.setItem('bb_planner_activities', JSON.stringify(next)); } catch {}
   };
 
+  const evaluateSafetyForSlot = () => {
+    if (!airQuality.isLive) return 'Unknown (Offline)';
+    if (aqi <= 60) return 'Safe';
+    if (aqi <= 135) return 'Moderate Caution';
+    return 'High Risk Indoors Advised';
+  };
+
+  const handleAddActivity = async (e) => {
+    e.preventDefault();
+    const title = newTitle.trim();
+    if (!title) return;
+
+    const payload = {
+      title,
+      category: newCategory,
+      scheduledDate: newDate,
+      timeSlot: newTime,
+      recommendedAqi: win.bestAqi,
+      weatherNote: airQuality.isLive
+        ? `${formatTemp ? formatTemp(airQuality.temperature) : `${airQuality.temperature}°C`}, ${airQuality.weatherCondition}`
+        : 'Weather pending',
+      safetyStatus: evaluateSafetyForSlot(),
+    };
+
+    setNewTitle('');
+    try {
+      const res = await plannerApi.create(payload);
+      if (res?.activity) {
+        persistLocal([res.activity, ...activities]);
+        setStatusNote('Activity saved to database.');
+        setTimeout(() => setStatusNote(''), 2500);
+        return;
+      }
+    } catch {
+      // fallback local record if backend unreachable
+    }
+    const localItem = { id: `local-${Date.now()}`, ...payload, completed: false };
+    persistLocal([localItem, ...activities]);
+  };
+
+  const handleToggleComplete = async (item) => {
+    const nextCompleted = !item.completed;
+    persistLocal(activities.map((a) => (a.id === item.id ? { ...a, completed: nextCompleted } : a)));
+    if (!String(item.id).startsWith('local-')) {
+      plannerApi.update(item.id, { completed: nextCompleted }).catch(() => {});
+    }
+  };
+
+  const handleSaveEdit = async (item) => {
+    if (!editTitle.trim()) return;
+    persistLocal(
+      activities.map((a) => (a.id === item.id ? { ...a, title: editTitle.trim(), timeSlot: editTime } : a))
+    );
+    setEditingId(null);
+    if (!String(item.id).startsWith('local-')) {
+      plannerApi.update(item.id, { title: editTitle.trim(), timeSlot: editTime }).catch(() => {});
+    }
+  };
+
+  const handleDelete = async (id) => {
+    persistLocal(activities.filter((a) => a.id !== id));
+    if (!String(id).startsWith('local-')) {
+      plannerApi.remove(id).catch(() => {});
+    }
+  };
+
+  const displayedActivities =
+    scheduleView === 'daily' ? activities.filter((a) => a.scheduledDate === todayStr) : activities;
+
   const walkStatus =
-    aqi <= 80
-      ? { status: 'Ideal', detail: 'Enjoy brisk walks anytime today', color: '#10b981' }
-      : aqi <= 140
-        ? { status: 'Use Clean Hours', detail: `Best near ${win.bestHour} away from traffic`, color: '#f59e0b' }
-        : { status: 'Limit & Mask', detail: 'Short essential walks only with N95', color: '#ef4444' };
+    !airQuality.isLive
+      ? { status: 'Check Live AQI', detail: 'Connect live feed for walk index', color: '#64748b' }
+      : aqi <= 80
+        ? { status: 'Safe All Day', detail: 'Enjoy brisk walks & outdoor errands', color: '#10b981' }
+        : aqi <= 140
+          ? { status: 'Best Midday', detail: `Walk near ${win.bestHour} (~${win.bestAqi} AQI)`, color: '#f59e0b' }
+          : { status: 'Limit & Mask', detail: 'Wear N95 for essential trips only', color: '#ef4444' };
 
   const cycleStatus =
-    aqi <= 75
-      ? { status: 'Safe to Cycle', detail: 'Green corridors & normal commute fine', color: '#10b981' }
-      : aqi <= 130
-        ? { status: 'Side Lanes Only', detail: 'Avoid heavy diesel traffic corridors', color: '#f59e0b' }
-        : { status: 'Switch to Transit', detail: 'High breathing rate increases PM intake', color: '#ef4444' };
+    !airQuality.isLive
+      ? { status: 'Unavailable', detail: 'Live AQI required', color: '#64748b' }
+      : aqi <= 75
+        ? { status: 'Safe to Cycle', detail: 'Green corridors & normal rides safe', color: '#10b981' }
+        : aqi <= 130
+          ? { status: 'Side Streets Only', detail: 'Avoid heavy diesel arterial roads', color: '#f59e0b' }
+          : { status: 'Switch to Transit', detail: 'Avoid cycling during high PM2.5', color: '#ef4444' };
 
-  const exerciseStatus =
-    aqi <= 85
-      ? { status: 'Outdoor Cardio OK', detail: 'Running & sports safe outdoors', color: '#10b981' }
-      : aqi <= 150
-        ? { status: 'Light Intensity', detail: 'Low-impact outdoor or indoor workout', color: '#f59e0b' }
-        : { status: 'Indoor Workout', detail: 'Yoga, pilates & strength indoors', color: '#ef4444' };
+  const sportsStatus =
+    !airQuality.isLive
+      ? { status: 'Unavailable', detail: 'Live AQI required', color: '#64748b' }
+      : aqi <= 85
+        ? { status: 'Outdoor Sports OK', detail: 'Running, football & field sports fine', color: '#10b981' }
+        : aqi <= 150
+          ? { status: 'Moderate Duration', detail: 'Take frequent hydration breaks', color: '#f59e0b' }
+          : { status: 'Indoor Training', detail: 'Yoga, gym & bodyweight workouts', color: '#ef4444' };
 
   return (
     <div className="space-y-5">
-      {/* Daily Alerts & Suitability Matrix */}
+      {/* Forecast Suitability Matrix */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <SuitabilityCard
-          title="Best Outdoor Window"
-          status={`${win.bestHour} (~${win.bestAqi} AQI)`}
-          detail={`Peak pollution expected near ${win.worstHour} (~${win.worstAqi} AQI)`}
+          title="Best Exercise Window"
+          status={airQuality.isLive ? `${win.bestHour} (~${win.bestAqi} AQI)` : 'Unavailable'}
+          detail={airQuality.isLive ? `Peak pollution near ${win.worstHour} (~${win.worstAqi} AQI)` : 'Connect live data'}
           Icon={Clock}
           color="#0d9488"
         />
-        <SuitabilityCard
-          title="Walking Suitability"
-          status={walkStatus.status}
-          detail={walkStatus.detail}
-          Icon={Footprints}
-          color={walkStatus.color}
-        />
-        <SuitabilityCard
-          title="Cycling Guidance"
-          status={cycleStatus.status}
-          detail={cycleStatus.detail}
-          Icon={Bike}
-          color={cycleStatus.color}
-        />
-        <SuitabilityCard
-          title="Exercise Mode"
-          status={exerciseStatus.status}
-          detail={exerciseStatus.detail}
-          Icon={Dumbbell}
-          color={exerciseStatus.color}
-        />
+        <SuitabilityCard title="Walking Guidance" status={walkStatus.status} detail={walkStatus.detail} Icon={Footprints} color={walkStatus.color} />
+        <SuitabilityCard title="Cycling & Transit" status={cycleStatus.status} detail={cycleStatus.detail} Icon={Bike} color={cycleStatus.color} />
+        <SuitabilityCard title="Sports & Workouts" status={sportsStatus.status} detail={sportsStatus.detail} Icon={Dumbbell} color={sportsStatus.color} />
       </div>
 
-      {/* Pollution-Based Daily Alert Banner */}
-      <div
-        className="surface-card p-4 flex items-start gap-3"
-        style={{
-          borderColor: aqi > 150 ? 'rgba(239, 68, 68, 0.3)' : 'var(--border-accent)',
-          background: aqi > 150 ? 'rgba(239, 68, 68, 0.08)' : undefined,
-        }}
-      >
-        <AlertTriangle
-          size={18}
-          className="flex-shrink-0 mt-0.5"
-          style={{ color: aqi > 150 ? '#ef4444' : 'var(--accent-teal)' }}
-        />
-        <div className="text-xs sm:text-sm" style={{ color: 'var(--text-primary)' }}>
-          <strong>Daily Pollution Alert ({airQuality.location.split(',')[0]} · AQI {aqi}):</strong>{' '}
-          {aqi > 150
-            ? `Unhealthy particulate conditions (${airQuality.pm25} µg/m³ PM2.5). Prioritize indoor exercise, keep kids indoors during rush hour, and ventilate only briefly near ${win.bestHour}.`
-            : `Air quality is ${cat.label}. Best time for outdoor movement and natural home ventilation is around ${win.bestHour}.`}
-        </div>
-      </div>
-
-      {/* Filter Toolbar */}
-      <div className="surface-card p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {CATEGORIES.map((c) => {
-            const active = activeCategory === c.id;
-            return (
-              <button
-                key={c.id}
-                onClick={() => setActiveCategory(c.id)}
-                className="px-3.5 py-2 rounded-xl text-xs font-semibold flex-shrink-0 transition-all"
-                style={
-                  active
-                    ? {
-                        background: 'linear-gradient(135deg, #0d9488, #0ea5e9)',
-                        color: '#ffffff',
-                      }
-                    : {
-                        background: 'var(--bg-subtle)',
-                        color: 'var(--text-secondary)',
-                      }
-                }
-              >
-                {c.label}
-              </button>
-            );
-          })}
+      {/* Personal Activity Scheduler (Full CRUD + Daily/Weekly Schedule) */}
+      <div className="surface-card p-5 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>
+              Your Pollution-Aware Activity Schedule
+            </h2>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+              Create, edit, complete, and organize activities around live AQI ({aqi}) & {airQuality.weatherCondition}.
+            </p>
+          </div>
+          <div className="flex gap-1.5">
+            <button
+              onClick={() => setScheduleView('daily')}
+              className="px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5"
+              style={scheduleView === 'daily' ? { background: 'linear-gradient(135deg, #0d9488, #0891b2)', color: '#fff' } : { background: 'var(--bg-subtle)', color: 'var(--text-secondary)' }}
+            >
+              <Calendar size={13} /> Today ({activities.filter((a) => a.scheduledDate === todayStr).length})
+            </button>
+            <button
+              onClick={() => setScheduleView('weekly')}
+              className="px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5"
+              style={scheduleView === 'weekly' ? { background: 'linear-gradient(135deg, #0d9488, #0891b2)', color: '#fff' } : { background: 'var(--bg-subtle)', color: 'var(--text-secondary)' }}
+            >
+              <CalendarDays size={13} /> Full Schedule ({activities.length})
+            </button>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <button
-            onClick={() => setActiveView('cards')}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold"
-            style={
-              activeView === 'cards'
-                ? { background: 'linear-gradient(135deg, #0d9488, #0ea5e9)', color: '#ffffff' }
-                : { background: 'var(--bg-subtle)', color: 'var(--text-secondary)' }
-            }
+        {/* Add Activity Form */}
+        <form onSubmit={handleAddActivity} className="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
+          <input
+            type="text"
+            value={newTitle}
+            onChange={(e) => setNewTitle(e.target.value)}
+            placeholder="Add activity (e.g., 20-min park walk or indoor yoga)..."
+            className="sm:col-span-5 px-3.5 py-2 text-xs saas-input"
+          />
+          <select
+            value={newCategory}
+            onChange={(e) => setNewCategory(e.target.value)}
+            className="sm:col-span-2 px-3 py-2 text-xs saas-input"
           >
-            <Layers size={14} /> Action Cards
+            {CATEGORIES.map((c) => (
+              <option key={c.id} value={c.id}>{c.label}</option>
+            ))}
+          </select>
+          <input
+            type="date"
+            value={newDate}
+            onChange={(e) => setNewDate(e.target.value)}
+            className="sm:col-span-2 px-3 py-2 text-xs saas-input"
+          />
+          <input
+            type="text"
+            value={newTime}
+            onChange={(e) => setNewTime(e.target.value)}
+            placeholder="07:30 AM"
+            className="sm:col-span-2 px-3 py-2 text-xs saas-input"
+          />
+          <button type="submit" disabled={!newTitle.trim()} className="sm:col-span-1 btn-brand py-2 text-xs flex items-center justify-center gap-1">
+            <Plus size={14} /> Add
           </button>
-          <button
-            onClick={() => setActiveView('timeline')}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold"
-            style={
-              activeView === 'timeline'
-                ? { background: 'linear-gradient(135deg, #0d9488, #0ea5e9)', color: '#ffffff' }
-                : { background: 'var(--bg-subtle)', color: 'var(--text-secondary)' }
-            }
-          >
-            <Clock size={14} /> Day Schedule
-          </button>
-        </div>
-      </div>
+        </form>
 
-      {/* Cards View */}
-      {activeView === 'cards' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {filtered.map((item) => {
-            const p = PRIORITY_MAP[item.priority] || PRIORITY_MAP.medium;
-            const isExpanded = expandedId === item.id;
-            const isDone = completedIds.includes(item.id);
-            return (
+        {statusNote && (
+          <div className="text-xs font-semibold text-emerald-500">{statusNote}</div>
+        )}
+
+        {/* Activities List */}
+        {displayedActivities.length === 0 ? (
+          <div className="p-6 rounded-xl text-center text-xs" style={{ background: 'var(--bg-subtle)', color: 'var(--text-muted)' }}>
+            No activities scheduled for {scheduleView === 'daily' ? 'today' : 'this week'}. Add one above to plan around clean-air windows.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {displayedActivities.map((item) => (
               <div
                 key={item.id}
-                onClick={() => setExpandedId(isExpanded ? null : item.id)}
-                className="surface-card interactive-card p-5 cursor-pointer"
-                style={{ opacity: isDone ? 0.78 : 1 }}
+                className="p-3.5 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                style={{
+                  background: item.completed ? 'rgba(16, 185, 129, 0.08)' : 'var(--bg-subtle)',
+                  border: `1px solid ${item.completed ? 'rgba(16, 185, 129, 0.25)' : 'var(--border-subtle)'}`,
+                }}
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="space-y-2 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span
-                        className="text-[11px] font-bold px-2.5 py-0.5 rounded-full"
-                        style={{ background: p.bg, color: p.color }}
-                      >
-                        {p.label}
-                      </span>
-                      <span className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
-                        {item.categoryLabel}
-                      </span>
-                    </div>
-
-                    <h4
-                      className="text-sm font-bold leading-snug"
-                      style={{
-                        color: 'var(--text-primary)',
-                        textDecoration: isDone ? 'line-through' : 'none',
-                      }}
-                    >
-                      {item.action}
-                    </h4>
-
-                    <div className="flex flex-wrap gap-1.5">
-                      {item.tags.map((tag) => (
-                        <span
-                          key={tag}
-                          className="text-[11px] px-2 py-0.5 rounded-full font-medium"
-                          style={{ background: 'rgba(13, 148, 136, 0.1)', color: 'var(--accent-teal)' }}
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-
+                <div className="flex items-start gap-3 flex-1 min-w-0">
                   <button
-                    onClick={(e) => toggleDone(item.id, e)}
-                    title={isDone ? 'Mark pending' : 'Mark completed'}
-                    className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 transition-colors"
-                    style={{
-                      background: isDone ? '#10b981' : 'var(--bg-subtle)',
-                      color: isDone ? '#ffffff' : 'var(--text-faint)',
-                      border: '1px solid var(--border-subtle)',
-                    }}
+                    onClick={() => handleToggleComplete(item)}
+                    className="mt-0.5 flex-shrink-0"
+                    style={{ color: item.completed ? '#10b981' : 'var(--text-faint)' }}
+                    title="Toggle completed"
                   >
-                    <CheckCircle2 size={15} />
+                    <CheckCircle2 size={18} />
                   </button>
+
+                  {editingId === item.id ? (
+                    <div className="flex flex-wrap gap-2 flex-1">
+                      <input
+                        value={editTitle}
+                        onChange={(e) => setEditTitle(e.target.value)}
+                        className="px-2.5 py-1 text-xs saas-input flex-1 min-w-[160px]"
+                      />
+                      <input
+                        value={editTime}
+                        onChange={(e) => setEditTime(e.target.value)}
+                        className="px-2.5 py-1 text-xs saas-input w-24"
+                      />
+                      <button onClick={() => handleSaveEdit(item)} className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-teal-600 text-white flex items-center gap-1">
+                        <Save size={12} /> Save
+                      </button>
+                      <button onClick={() => setEditingId(null)} className="px-2 py-1 rounded-lg text-xs" style={{ color: 'var(--text-muted)' }}>
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span
+                          className="text-sm font-semibold"
+                          style={{
+                            color: 'var(--text-primary)',
+                            textDecoration: item.completed ? 'line-through' : 'none',
+                          }}
+                        >
+                          {item.title}
+                        </span>
+                        <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-600">
+                          {item.category}
+                        </span>
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ background: cat.bg, color: cat.color }}>
+                          {item.safetyStatus}
+                        </span>
+                      </div>
+                      <div className="text-[11px] mt-1 flex items-center gap-3 flex-wrap" style={{ color: 'var(--text-muted)' }}>
+                        <span>{item.scheduledDate} · {item.timeSlot}</span>
+                        {item.recommendedAqi != null && <span>Est. Window AQI ~{item.recommendedAqi}</span>}
+                        {item.weatherNote && (
+                          <span className="flex items-center gap-1">
+                            <CloudSun size={11} /> {item.weatherNote}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
-                {isExpanded && (
-                  <div className="mt-4 pt-3 border-t space-y-2.5" style={{ borderColor: 'var(--border-subtle)' }}>
-                    <div className="p-3 rounded-xl text-xs" style={{ background: 'rgba(14, 165, 233, 0.08)' }}>
-                      <div className="font-bold mb-0.5 text-sky-500">Why This Matters</div>
-                      <div style={{ color: 'var(--text-secondary)' }}>{item.why}</div>
-                    </div>
-                    <div className="p-3 rounded-xl text-xs" style={{ background: 'rgba(16, 185, 129, 0.08)' }}>
-                      <div className="font-bold mb-0.5 text-emerald-500">Expected Health Benefit</div>
-                      <div style={{ color: 'var(--text-secondary)' }}>{item.benefit}</div>
-                    </div>
+                {editingId !== item.id && (
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <button
+                      onClick={() => {
+                        setEditingId(item.id);
+                        setEditTitle(item.title);
+                        setEditTime(item.timeSlot);
+                      }}
+                      title="Edit activity"
+                      className="p-1.5 rounded-lg hover:bg-teal-500/10"
+                      style={{ color: 'var(--text-muted)' }}
+                    >
+                      <Pencil size={14} />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(item.id)}
+                      title="Delete activity"
+                      className="p-1.5 rounded-lg hover:bg-red-500/10 text-red-500"
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </div>
                 )}
-
-                <div className="flex items-center gap-1 mt-3 text-xs font-semibold" style={{ color: 'var(--accent-teal)' }}>
-                  {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                  <span>{isExpanded ? 'Hide rationale' : 'View science & benefit'}</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Timeline View */}
-      {activeView === 'timeline' && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {timeline.map((period) => {
-            const PeriodIcon =
-              period.period === 'Morning' ? Sunrise : period.period === 'Midday' ? Sun : Moon;
-            return (
-              <div key={period.period} className="surface-card p-5">
-                <div className="flex items-center gap-3 mb-4 pb-3 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
-                  <div
-                    className="w-10 h-10 rounded-xl flex items-center justify-center"
-                    style={{ background: `${period.color}18`, color: period.color }}
-                  >
-                    <PeriodIcon size={18} />
-                  </div>
-                  <div>
-                    <div className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
-                      {period.period}
-                    </div>
-                    <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                      {period.timeRange}
-                    </div>
-                  </div>
-                </div>
-                <div className="space-y-4">
-                  {period.items.map((item, idx) => (
-                    <div key={idx} className="flex gap-3 items-start">
-                      <div className="text-xs font-bold w-16 flex-shrink-0 pt-0.5" style={{ color: 'var(--accent-teal)' }}>
-                        {item.time}
-                      </div>
-                      <div className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-                        {item.action}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Indoor Activity Quick Alternatives (when outdoor AQI is elevated) */}
-      {aqi > 120 && (
-        <div className="surface-card p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <Home size={16} style={{ color: 'var(--accent-teal)' }} />
-            <h3 className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
-              Recommended Indoor Activity Alternatives Today
-            </h3>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-            {[
-              { title: '25-Min Mobility & Yoga', desc: 'Improves lung capacity without heavy particulate inhalation.' },
-              { title: 'Bodyweight Circuit', desc: 'Safe cardiovascular conditioning inside sealed rooms.' },
-              { title: 'Family Indoor Games', desc: 'Keeps children active while avoiding outdoor PM2.5 exposure.' },
-            ].map((alt) => (
-              <div key={alt.title} className="p-3.5 rounded-xl" style={{ background: 'var(--bg-subtle)' }}>
-                <div className="font-bold mb-1" style={{ color: 'var(--text-primary)' }}>{alt.title}</div>
-                <div style={{ color: 'var(--text-muted)' }}>{alt.desc}</div>
               </div>
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
+
+      {/* Forecast-Driven Daily Advice Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {forecastCards.slice(0, 6).map((card) => (
+          <div key={card.id} className="surface-card p-5 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--accent-teal)' }}>
+                {card.categoryLabel}
+              </span>
+              <span className="text-[11px] font-semibold" style={{ color: 'var(--text-muted)' }}>
+                {card.difficulty}
+              </span>
+            </div>
+            <h4 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{card.action}</h4>
+            <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{card.why}</p>
+            <div className="text-xs font-semibold text-emerald-500 pt-1">Benefit: {card.benefit}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Morning / Midday / Evening Routine Timeline */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {routineTimeline.map((period) => {
+          const PeriodIcon = period.period === 'Morning' ? Sunrise : period.period === 'Midday' ? Sun : Moon;
+          return (
+            <div key={period.period} className="surface-card p-5">
+              <div className="flex items-center gap-3 mb-4 pb-3 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: `${period.color}18`, color: period.color }}>
+                  <PeriodIcon size={17} />
+                </div>
+                <div>
+                  <div className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>{period.period}</div>
+                  <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{period.timeRange}</div>
+                </div>
+              </div>
+              <div className="space-y-3">
+                {period.items.map((item, i) => (
+                  <div key={i} className="flex gap-3 items-start text-xs">
+                    <span className="font-bold w-16 flex-shrink-0" style={{ color: 'var(--accent-teal)' }}>{item.time}</span>
+                    <span style={{ color: 'var(--text-secondary)' }}>{item.action}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

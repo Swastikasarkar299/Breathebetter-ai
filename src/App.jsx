@@ -1,46 +1,56 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, Suspense, lazy } from 'react';
 import {
   AlertTriangle, CheckCircle2, Info, SlidersHorizontal, ArrowRight, ShieldAlert,
 } from 'lucide-react';
 import Navbar from './components/Navbar';
-import Dashboard from './components/Dashboard';
-import ChatAssistant from './components/ChatAssistant';
-import DailyPlanner from './components/DailyPlanner';
-import IndoorAir from './components/IndoorAir';
-import EcoImpact from './components/EcoImpact';
-import Community from './components/Community';
-import Settings from './components/Settings';
+import ErrorBoundary from './components/ErrorBoundary';
+import AuthModal from './components/AuthModal';
 import { getCityData, getAqiCategory, generateAlerts } from './data/mockData';
 import { fetchLiveCityAirQuality, fetchLiveByCoords } from './services/airQualityService';
+import { authApi, notificationsApi, getAuthToken, setAuthToken } from './services/apiClient';
+
+// Code-split page modules for faster initial load
+const Dashboard = lazy(() => import('./components/Dashboard'));
+const ChatAssistant = lazy(() => import('./components/ChatAssistant'));
+const DailyPlanner = lazy(() => import('./components/DailyPlanner'));
+const IndoorAir = lazy(() => import('./components/IndoorAir'));
+const EcoImpact = lazy(() => import('./components/EcoImpact'));
+const Community = lazy(() => import('./components/Community'));
+const Analytics = lazy(() => import('./components/Analytics'));
+const Settings = lazy(() => import('./components/Settings'));
 
 const PAGE_META = {
   dashboard: {
     title: 'Air Quality Overview',
-    subtitle: 'Real-time particulate matter, meteorology, and health risk telemetry',
+    subtitle: 'Real-time particulate matter, meteorology, forecasts, and risk intelligence',
   },
   assistant: {
     title: 'AI Health Assistant',
-    subtitle: 'Evidence-based guidance tailored to live local AQI and personal sensitivity',
+    subtitle: 'Context-aware guidance backed by live environmental readings',
   },
   planner: {
-    title: 'Daily Activity Planner',
-    subtitle: 'Hourly outdoor safety windows, exercise guidance, and daily routines',
+    title: 'Smart Daily Planner',
+    subtitle: 'Pollution-aware outdoor windows, forecasts, and personal activity scheduling',
   },
   indoor: {
     title: 'Indoor Air Quality',
-    subtitle: 'Ventilation timing, filtration sizing, and room-by-room protection',
+    subtitle: 'Ventilation scheduling, filtration sizing, and indoor safety guidance',
   },
   impact: {
     title: 'Eco Impact & Carbon',
-    subtitle: 'Estimated emissions footprint, transit comparisons, and clean-air tracking',
+    subtitle: 'Interactive commute footprint calculator and sustainability progress',
   },
   community: {
-    title: 'Community Action',
-    subtitle: 'Neighborhood updates, pollution reporting, and shared clean-air challenges',
+    title: 'Community Platform',
+    subtitle: 'Local pollution reports, discussions, likes, comments, and challenges',
+  },
+  analytics: {
+    title: 'Analytics, Map & Education',
+    subtitle: 'City comparisons, live station map, historical logs, CSV/PDF reports, and AQI learning center',
   },
   settings: {
-    title: 'Settings & Preferences',
-    subtitle: 'Profile personalization, alerts, theme mode, and AQI standards',
+    title: 'Settings & Account',
+    subtitle: 'Theme mode, saved locations, AQI standards, alerts, and account preferences',
   },
 };
 
@@ -53,8 +63,21 @@ function loadSaved(key, fallback) {
   }
 }
 
+const PageLoader = () => (
+  <div className="space-y-4">
+    <div className="surface-card p-6 space-y-3">
+      <div className="skeleton h-6 w-48" />
+      <div className="skeleton h-40 w-full" />
+    </div>
+  </div>
+);
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [authModalMode, setAuthModalMode] = useState('login');
+  const [authUser, setAuthUser] = useState(null);
+  const [savedLocations, setSavedLocations] = useState(() => loadSaved('bb_saved_locations', []));
 
   const [theme, setTheme] = useState(() => {
     try {
@@ -66,7 +89,7 @@ export default function App() {
 
   const [userProfile, setUserProfile] = useState(() =>
     loadSaved('bb_user_profile', {
-      name: 'Arjun S.',
+      name: 'Guest Explorer',
       location: 'New Delhi, India',
       type: 'Working Professional',
       transport: 'Public Transport',
@@ -81,82 +104,122 @@ export default function App() {
       aqiAlerts: true,
       dailyReport: true,
       weatherAlerts: true,
-      communityUpdates: true,
+      plannerReminders: true,
+      challengeAlerts: true,
       alertThreshold: 150,
+      aqiStandard: 'US_EPA',
       tempUnit: 'C',
+      language: 'en',
       autoDetectLocation: false,
-      privacy: {
-        locationAccess: false,
-        localStorage: true,
-        communityLeaderboard: true,
-      },
     })
   );
 
-  const [apiKeys, setApiKeys] = useState(() =>
-    loadSaved('bb_api_keys', {
-      openweather: import.meta.env.VITE_OPENWEATHER_API_KEY || '',
-      iqair: import.meta.env.VITE_IQAIR_API_KEY || '',
-      openai: import.meta.env.VITE_GEMINI_API_KEY || '',
-    })
-  );
-
-  const [airQuality, setAirQuality] = useState(() =>
-    getCityData(userProfile.location || 'New Delhi, India')
-  );
+  const [airQuality, setAirQuality] = useState(() => {
+    const base = getCityData(userProfile.location || 'New Delhi, India');
+    return { ...base, aqi: null, pm25: null, pm10: null, isLive: false };
+  });
   const [isLoadingCity, setIsLoadingCity] = useState(true);
   const [apiError, setApiError] = useState(null);
-  const [ecoScoreSummary, setEcoScoreSummary] = useState(() => {
-    try {
-      return Number(localStorage.getItem('bb_eco_score_cache') || 74);
-    } catch {
-      return 74;
-    }
-  });
+  const [storedNotifications, setStoredNotifications] = useState([]);
+  const [readDynamicIds, setReadDynamicIds] = useState(() => loadSaved('bb_read_dyn_alerts', []));
+  const [clearedDynamic, setClearedDynamic] = useState(false);
 
-  // Apply light/dark theme attribute
+  // Sync light/dark theme attribute
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     try {
       localStorage.setItem('bb_theme', theme);
     } catch {
-      // ignore storage errors
+      // ignore
     }
   }, [theme]);
 
   useEffect(() => {
     try {
       localStorage.setItem('bb_user_profile', JSON.stringify(userProfile));
-    } catch {
-      // ignore
-    }
+    } catch {}
   }, [userProfile]);
 
   useEffect(() => {
     try {
       localStorage.setItem('bb_preferences', JSON.stringify(preferences));
-    } catch {
-      // ignore
-    }
+    } catch {}
   }, [preferences]);
 
   useEffect(() => {
     try {
-      localStorage.setItem('bb_api_keys', JSON.stringify(apiKeys));
-    } catch {
-      // ignore
-    }
-  }, [apiKeys]);
+      localStorage.setItem('bb_saved_locations', JSON.stringify(savedLocations));
+    } catch {}
+  }, [savedLocations]);
+
+  // Restore authenticated session if token exists
+  useEffect(() => {
+    const token = getAuthToken();
+    if (!token) return;
+    authApi
+      .me()
+      .then((res) => {
+        if (res?.user) {
+          setAuthUser(res.user);
+          if (res.user.profile && Object.keys(res.user.profile).length) {
+            setUserProfile((p) => ({ ...p, ...res.user.profile }));
+          }
+          if (res.user.preferences && Object.keys(res.user.preferences).length) {
+            setPreferences((pr) => ({ ...pr, ...res.user.preferences }));
+          }
+          if (Array.isArray(res.savedLocations)) {
+            setSavedLocations(res.savedLocations);
+          }
+        }
+      })
+      .catch(() => {
+        setAuthToken('');
+      });
+  }, []);
+
+  // Load persisted notifications from API
+  const refreshNotifications = () => {
+    notificationsApi
+      .list()
+      .then((res) => {
+        if (Array.isArray(res?.notifications)) setStoredNotifications(res.notifications);
+      })
+      .catch(() => {
+        // Offline or backend not running — dynamic notifications still render cleanly
+      });
+  };
+
+  useEffect(() => {
+    refreshNotifications();
+  }, [authUser]);
 
   const fetchCityAirQuality = async (cityInput) => {
     setIsLoadingCity(true);
     setApiError(null);
-    const liveData = await fetchLiveCityAirQuality(cityInput, apiKeys.openweather);
+    setClearedDynamic(false);
+    const liveData = await fetchLiveCityAirQuality(cityInput);
     setAirQuality(liveData);
     if (liveData.error) {
       setApiError(liveData.error);
     } else {
       setUserProfile((p) => ({ ...p, location: liveData.location }));
+      // Persist real AQI breach notification if threshold crossed
+      if (
+        liveData.isLive &&
+        preferences.aqiAlerts !== false &&
+        liveData.aqi >= (preferences.alertThreshold ?? 150)
+      ) {
+        notificationsApi
+          .create({
+            type: liveData.aqi > 200 ? 'very_high_aqi' : 'aqi_alert',
+            title: `AQI ${liveData.aqi} (${liveData.category}) in ${liveData.location.split(',')[0]}`,
+            message: `Exceeds your ${preferences.alertThreshold ?? 150} threshold. PM2.5 is ${liveData.pm25} µg/m³.`,
+            city: liveData.location,
+            aqiValue: liveData.aqi,
+          })
+          .then(refreshNotifications)
+          .catch(() => {});
+      }
     }
     setIsLoadingCity(false);
   };
@@ -197,25 +260,21 @@ export default function App() {
         } else {
           setUserProfile((p) => ({ ...p, location: liveData.location }));
         }
-        setPreferences((pr) => ({
-          ...pr,
-          privacy: { ...(pr.privacy || {}), locationAccess: true },
-        }));
         setIsLoadingCity(false);
       },
       (err) => {
         setIsLoadingCity(false);
         setApiError(
           err?.code === 1
-            ? 'Location permission was declined. You can search any city manually above.'
-            : 'Unable to determine device location right now.'
+            ? 'Location access denied. Search any city manually above.'
+            : 'Unable to acquire device coordinates.'
         );
       },
       { timeout: 10000 }
     );
   };
 
-  // Initial live fetch on startup
+  // Initial live fetch
   useEffect(() => {
     if (preferences.autoDetectLocation && navigator.geolocation) {
       handleRequestLocation();
@@ -225,11 +284,111 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const alerts = useMemo(() => generateAlerts(airQuality, preferences), [airQuality, preferences]);
-  const thresholdBreached =
-    preferences.aqiAlerts !== false && airQuality.aqi >= (preferences.alertThreshold ?? 150);
+  // Merge live real-time rule alerts + persisted backend notifications (no duplicates)
+  const dynamicAlerts = useMemo(() => {
+    if (!airQuality.isLive || clearedDynamic) return [];
+    return generateAlerts(airQuality, preferences).map((a) => ({
+      ...a,
+      type: a.severity === 'critical' ? 'very_high_aqi' : a.severity === 'warning' ? 'weather_warning' : 'daily_summary',
+      isRead: readDynamicIds.includes(a.id),
+      isDynamic: true,
+    }));
+  }, [airQuality, preferences, readDynamicIds, clearedDynamic]);
 
-  const cat = getAqiCategory(airQuality.aqi);
+  const combinedNotifications = useMemo(() => {
+    const seen = new Set();
+    const list = [...dynamicAlerts, ...storedNotifications].filter((n) => {
+      if (seen.has(n.title)) return false;
+      seen.add(n.title);
+      return true;
+    });
+    return list;
+  }, [dynamicAlerts, storedNotifications]);
+
+  const handleMarkNotifRead = (id) => {
+    if (dynamicAlerts.some((d) => d.id === id)) {
+      const next = [...readDynamicIds, id];
+      setReadDynamicIds(next);
+      try { localStorage.setItem('bb_read_dyn_alerts', JSON.stringify(next)); } catch {}
+    } else {
+      setStoredNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)));
+      notificationsApi.markRead(id).catch(() => {});
+    }
+  };
+
+  const handleMarkAllRead = () => {
+    const dynIds = dynamicAlerts.map((d) => d.id);
+    setReadDynamicIds(dynIds);
+    try { localStorage.setItem('bb_read_dyn_alerts', JSON.stringify(dynIds)); } catch {}
+    setStoredNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    notificationsApi.markAllRead().catch(() => {});
+  };
+
+  const handleClearNotifications = () => {
+    setClearedDynamic(true);
+    setStoredNotifications([]);
+    notificationsApi.clearAll().catch(() => {});
+  };
+
+  const handleAuthSuccess = (res) => {
+    setAuthUser(res.user);
+    if (res.user?.profile) setUserProfile((p) => ({ ...p, ...res.user.profile }));
+    if (res.user?.preferences) setPreferences((pr) => ({ ...pr, ...res.user.preferences }));
+    if (Array.isArray(res.savedLocations)) setSavedLocations(res.savedLocations);
+  };
+
+  const handleLogout = async () => {
+    await authApi.logout().catch(() => {});
+    setAuthToken('');
+    setAuthUser(null);
+    setSavedLocations([]);
+  };
+
+  const handleSaveCurrentCity = async () => {
+    const cityName = airQuality.location;
+    if (!cityName) return;
+    if (authUser) {
+      const res = await authApi.addLocation({ cityName, lat: airQuality.lat, lon: airQuality.lon }).catch(() => null);
+      if (res?.savedLocations) setSavedLocations(res.savedLocations);
+    } else {
+      setSavedLocations((prev) =>
+        prev.some((l) => l.cityName === cityName)
+          ? prev
+          : [{ id: `loc-${Date.now()}`, cityName, lat: airQuality.lat, lon: airQuality.lon }, ...prev]
+      );
+    }
+  };
+
+  const handleRemoveSavedLocation = async (id) => {
+    if (authUser) {
+      const res = await authApi.removeLocation(id).catch(() => null);
+      if (res?.savedLocations) setSavedLocations(res.savedLocations);
+    } else {
+      setSavedLocations((prev) => prev.filter((l) => l.id !== id));
+    }
+  };
+
+  const persistProfileAndPrefs = async (nextProfile, nextPrefs) => {
+    setUserProfile(nextProfile);
+    setPreferences(nextPrefs);
+    if (nextProfile.location && nextProfile.location !== airQuality.location) {
+      fetchCityAirQuality(nextProfile.location);
+    }
+    if (authUser) {
+      await authApi.updateProfile({
+        name: nextProfile.name,
+        profile: nextProfile,
+        preferences: nextPrefs,
+      }).catch(() => {});
+    }
+  };
+
+  const thresholdBreached =
+    airQuality.isLive &&
+    preferences.aqiAlerts !== false &&
+    airQuality.aqi >= (preferences.alertThreshold ?? 150);
+
+  const cat = getAqiCategory(airQuality.aqi ?? 0);
   const pageInfo = PAGE_META[activeTab] || PAGE_META.dashboard;
 
   const todayFormatted = new Date().toLocaleDateString('en-US', {
@@ -240,9 +399,8 @@ export default function App() {
   });
 
   const formatTemp = (celsius) => {
-    if (preferences.tempUnit === 'F') {
-      return `${Math.round((celsius * 9) / 5 + 32)}°F`;
-    }
+    if (celsius == null) return 'N/A';
+    if (preferences.tempUnit === 'F') return `${Math.round((celsius * 9) / 5 + 32)}°F`;
     return `${celsius}°C`;
   };
 
@@ -258,9 +416,19 @@ export default function App() {
           onSelectCity={fetchCityAirQuality}
           theme={theme}
           onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
-          alerts={alerts}
+          notifications={combinedNotifications}
+          onMarkNotifRead={handleMarkNotifRead}
+          onMarkAllRead={handleMarkAllRead}
+          onClearNotifications={handleClearNotifications}
           preferences={preferences}
           isLoadingCity={isLoadingCity}
+          authUser={authUser}
+          savedLocations={savedLocations}
+          onOpenAuth={(m = 'login') => {
+            setAuthModalMode(m);
+            setAuthModalOpen(true);
+          }}
+          onLogout={handleLogout}
         />
 
         <main className="max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 flex-1">
@@ -279,30 +447,28 @@ export default function App() {
             </div>
 
             {activeTab !== 'settings' && (
-              <div className="flex items-center gap-2 self-start sm:self-auto">
-                <div
-                  className="surface-card px-3.5 py-2 flex items-center gap-2.5"
-                  style={{ borderRadius: '14px' }}
+              <div className="surface-card px-3.5 py-2 flex items-center gap-2.5 self-start sm:self-auto" style={{ borderRadius: '14px' }}>
+                <span
+                  className={`w-2.5 h-2.5 rounded-full ${airQuality.isLive ? 'animate-pulse-soft' : ''}`}
+                  style={{ background: airQuality.isLive ? cat.color : '#94a3b8' }}
+                />
+                <span className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+                  AQI {airQuality.aqi ?? 'N/A'}
+                </span>
+                <span
+                  className="text-xs font-semibold px-2 py-0.5 rounded-full"
+                  style={{
+                    background: airQuality.isLive ? cat.bg : 'var(--bg-subtle)',
+                    color: airQuality.isLive ? cat.color : 'var(--text-muted)',
+                  }}
                 >
-                  <span
-                    className="w-2.5 h-2.5 rounded-full animate-pulse-soft"
-                    style={{ background: cat.color }}
-                  />
-                  <span className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
-                    AQI {airQuality.aqi}
-                  </span>
-                  <span
-                    className="text-xs font-semibold px-2 py-0.5 rounded-full"
-                    style={{ background: cat.bg, color: cat.color }}
-                  >
-                    {cat.label}
-                  </span>
-                </div>
+                  {airQuality.isLive ? cat.label : 'Unavailable'}
+                </span>
               </div>
             )}
           </div>
 
-          {/* Custom Threshold Breach Banner */}
+          {/* Threshold Alert Banner */}
           {thresholdBreached && activeTab === 'dashboard' && !isLoadingCity && (
             <div
               className="mb-5 p-3.5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fade-in-up"
@@ -317,9 +483,8 @@ export default function App() {
                   className={`flex-shrink-0 mt-0.5 sm:mt-0 ${airQuality.aqi > 200 ? 'text-red-500' : 'text-amber-500'}`}
                 />
                 <span style={{ color: 'var(--text-primary)' }}>
-                  <strong>Air Quality Alert:</strong> {airQuality.location.split(',')[0]} is at{' '}
-                  <strong>AQI {airQuality.aqi}</strong>, above your alert threshold of{' '}
-                  <strong>{preferences.alertThreshold}</strong>. {cat.sensitiveAdvice}
+                  <strong>Threshold Alert:</strong> {airQuality.location.split(',')[0]} is at{' '}
+                  <strong>AQI {airQuality.aqi}</strong> (exceeds {preferences.alertThreshold}). {cat.sensitiveAdvice}
                 </span>
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
@@ -335,88 +500,67 @@ export default function App() {
                   className="text-xs font-medium px-2.5 py-1.5 rounded-xl flex items-center gap-1"
                   style={{ color: 'var(--text-muted)' }}
                 >
-                  <SlidersHorizontal size={12} /> Threshold
+                  <SlidersHorizontal size={12} /> Alerts
                 </button>
               </div>
             </div>
           )}
 
-          {/* Active Page View */}
-          <div className="animate-fade-in-up">
-            {activeTab === 'dashboard' && (
-              <Dashboard
-                airQuality={airQuality}
-                onSelectCity={fetchCityAirQuality}
-                onRefresh={() => fetchCityAirQuality(airQuality.location)}
-                onRequestLocation={handleRequestLocation}
-                isLoadingCity={isLoadingCity}
-                apiError={apiError}
-                preferences={preferences}
-                formatTemp={formatTemp}
-                onNavigate={setActiveTab}
-              />
-            )}
-            {activeTab === 'assistant' && (
-              <ChatAssistant
-                airQuality={airQuality}
-                userProfile={userProfile}
-                apiKeys={apiKeys}
-              />
-            )}
-            {activeTab === 'planner' && (
-              <DailyPlanner
-                airQuality={airQuality}
-                userProfile={userProfile}
-              />
-            )}
-            {activeTab === 'indoor' && (
-              <IndoorAir
-                airQuality={airQuality}
-                userProfile={userProfile}
-              />
-            )}
-            {activeTab === 'impact' && (
-              <EcoImpact
-                userProfile={userProfile}
-                onScoreChange={(score) => {
-                  setEcoScoreSummary(score);
-                  try {
-                    localStorage.setItem('bb_eco_score_cache', String(score));
-                  } catch {
-                    // ignore
-                  }
-                }}
-              />
-            )}
-            {activeTab === 'community' && (
-              <Community
-                airQuality={airQuality}
-                userEcoScore={ecoScoreSummary}
-                userName={userProfile.name}
-              />
-            )}
-            {activeTab === 'settings' && (
-              <Settings
-                userProfile={userProfile}
-                setUserProfile={(next) => {
-                  setUserProfile(next);
-                  if (next.location && next.location !== airQuality.location) {
-                    fetchCityAirQuality(next.location);
-                  }
-                }}
-                preferences={preferences}
-                setPreferences={setPreferences}
-                theme={theme}
-                setTheme={setTheme}
-                apiKeys={apiKeys}
-                setApiKeys={setApiKeys}
-                onRequestLocation={handleRequestLocation}
-              />
-            )}
-          </div>
+          {/* Routed View */}
+          <ErrorBoundary>
+            <Suspense fallback={<PageLoader />}>
+              <div className="animate-fade-in-up">
+                {activeTab === 'dashboard' && (
+                  <Dashboard
+                    airQuality={airQuality}
+                    onSelectCity={fetchCityAirQuality}
+                    onRefresh={() => fetchCityAirQuality(airQuality.location)}
+                    onRequestLocation={handleRequestLocation}
+                    isLoadingCity={isLoadingCity}
+                    apiError={apiError}
+                    preferences={preferences}
+                    formatTemp={formatTemp}
+                    onNavigate={setActiveTab}
+                    onSaveLocation={handleSaveCurrentCity}
+                    isLocationSaved={savedLocations.some((l) => l.cityName === airQuality.location)}
+                  />
+                )}
+                {activeTab === 'assistant' && (
+                  <ChatAssistant airQuality={airQuality} userProfile={userProfile} />
+                )}
+                {activeTab === 'planner' && (
+                  <DailyPlanner airQuality={airQuality} userProfile={userProfile} formatTemp={formatTemp} />
+                )}
+                {activeTab === 'indoor' && <IndoorAir airQuality={airQuality} />}
+                {activeTab === 'impact' && <EcoImpact userProfile={userProfile} />}
+                {activeTab === 'community' && <Community airQuality={airQuality} authUser={authUser} />}
+                {activeTab === 'analytics' && <Analytics airQuality={airQuality} onSelectCity={fetchCityAirQuality} />}
+                {activeTab === 'settings' && (
+                  <Settings
+                    key={authUser?.id || 'guest'}
+                    userProfile={userProfile}
+                    preferences={preferences}
+                    onSaveAll={persistProfileAndPrefs}
+                    theme={theme}
+                    setTheme={setTheme}
+                    onRequestLocation={handleRequestLocation}
+                    authUser={authUser}
+                    savedLocations={savedLocations}
+                    onSelectCity={fetchCityAirQuality}
+                    onRemoveLocation={handleRemoveSavedLocation}
+                    onOpenAuth={(m = 'login') => {
+                      setAuthModalMode(m);
+                      setAuthModalOpen(true);
+                    }}
+                    onLogout={handleLogout}
+                    airQuality={airQuality}
+                  />
+                )}
+              </div>
+            </Suspense>
+          </ErrorBoundary>
         </main>
 
-        {/* Footer */}
         <footer className="mt-10 pb-6 px-4">
           <div
             className="max-w-7xl mx-auto surface-card px-5 py-3.5 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs"
@@ -429,9 +573,9 @@ export default function App() {
                 <AlertTriangle size={14} className="text-amber-500" />
               )}
               <span>
-                BreatheBetter AI · Data source:{' '}
+                BreatheBetter AI · Data:{' '}
                 <strong style={{ color: airQuality.isLive ? 'var(--accent-teal)' : '#d97706' }}>
-                  {airQuality.isLive ? airQuality.dataSource : 'Offline Reference (Not Live)'}
+                  {airQuality.isLive ? airQuality.dataSource : 'Unavailable (Live API unreachable)'}
                 </strong>
               </span>
             </div>
@@ -442,6 +586,14 @@ export default function App() {
           </div>
         </footer>
       </div>
+
+      <AuthModal
+        isOpen={authModalOpen}
+        initialMode={authModalMode}
+        onClose={() => setAuthModalOpen(false)}
+        onAuthSuccess={handleAuthSuccess}
+        defaultLocation={airQuality.location}
+      />
     </div>
   );
 }

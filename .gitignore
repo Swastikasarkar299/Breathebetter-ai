@@ -12,6 +12,9 @@ dist
 dist-ssr
 __pycache__/
 *.py[cod]
+server/data/
+*.db
+*.sqlite
 *.local
 .env
 .env.*

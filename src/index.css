@@ -1,49 +1,53 @@
 @import "tailwindcss";
 
 :root {
-  --bg-page: #f4f8fb;
-  --bg-surface: rgba(255, 255, 255, 0.86);
+  --bg-page: #f3f7fb;
+  --bg-surface: rgba(255, 255, 255, 0.92);
   --bg-surface-solid: #ffffff;
-  --bg-subtle: #f1f5f9;
+  --bg-subtle: #eef4f8;
   --bg-input: #f8fafc;
-  --bg-nav: rgba(255, 255, 255, 0.9);
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
+  --bg-nav: rgba(255, 255, 255, 0.94);
+  --text-primary: #0b1e3b;
+  --text-secondary: #334155;
   --text-muted: #64748b;
   --text-faint: #94a3b8;
-  --border-subtle: rgba(15, 23, 42, 0.08);
-  --border-accent: rgba(13, 148, 136, 0.22);
+  --border-subtle: rgba(11, 30, 59, 0.09);
+  --border-accent: rgba(13, 148, 136, 0.28);
+  --accent-navy: #0b1e3b;
   --accent-teal: #0d9488;
-  --accent-sky: #0ea5e9;
-  --shadow-card: 0 1px 3px rgba(15, 23, 42, 0.04), 0 8px 24px -4px rgba(15, 23, 42, 0.06);
-  --shadow-card-hover: 0 4px 12px rgba(13, 148, 136, 0.08), 0 14px 30px -6px rgba(15, 23, 42, 0.1);
-  --chart-grid: rgba(15, 23, 42, 0.06);
+  --accent-cyan: #06b6d4;
+  --accent-green: #10b981;
+  --shadow-card: 0 1px 3px rgba(11, 30, 59, 0.05), 0 8px 22px -6px rgba(11, 30, 59, 0.07);
+  --shadow-card-hover: 0 4px 12px rgba(13, 148, 136, 0.1), 0 14px 28px -8px rgba(11, 30, 59, 0.12);
+  --chart-grid: rgba(11, 30, 59, 0.06);
   --chart-axis: #64748b;
   --skeleton-a: #e2e8f0;
   --skeleton-b: #f1f5f9;
 }
 
 html[data-theme="dark"] {
-  --bg-page: #0b1220;
-  --bg-surface: rgba(17, 25, 40, 0.86);
-  --bg-surface-solid: #111928;
-  --bg-subtle: rgba(30, 41, 59, 0.72);
-  --bg-input: rgba(15, 23, 42, 0.85);
-  --bg-nav: rgba(11, 18, 32, 0.88);
+  --bg-page: #071122;
+  --bg-surface: rgba(13, 25, 45, 0.92);
+  --bg-surface-solid: #0f1d35;
+  --bg-subtle: #162642;
+  --bg-input: #0b172c;
+  --bg-nav: rgba(7, 17, 34, 0.92);
   --text-primary: #f1f5f9;
   --text-secondary: #cbd5e1;
   --text-muted: #94a3b8;
   --text-faint: #64748b;
-  --border-subtle: rgba(148, 163, 184, 0.14);
-  --border-accent: rgba(20, 184, 166, 0.3);
+  --border-subtle: rgba(148, 163, 184, 0.16);
+  --border-accent: rgba(20, 184, 166, 0.34);
+  --accent-navy: #1e3a5f;
   --accent-teal: #14b8a6;
-  --accent-sky: #38bdf8;
-  --shadow-card: 0 2px 6px rgba(0, 0, 0, 0.25), 0 12px 28px -4px rgba(0, 0, 0, 0.35);
-  --shadow-card-hover: 0 6px 16px rgba(20, 184, 166, 0.14), 0 16px 34px -6px rgba(0, 0, 0, 0.45);
+  --accent-cyan: #22d3ee;
+  --accent-green: #34d399;
+  --shadow-card: 0 2px 6px rgba(0, 0, 0, 0.3), 0 12px 28px -6px rgba(0, 0, 0, 0.42);
+  --shadow-card-hover: 0 6px 16px rgba(20, 184, 166, 0.14), 0 16px 32px -8px rgba(0, 0, 0, 0.52);
   --chart-grid: rgba(148, 163, 184, 0.12);
   --chart-axis: #94a3b8;
-  --skeleton-a: #1e293b;
-  --skeleton-b: #283548;
+  --skeleton-a: #162642;
+  --skeleton-b: #1e3354;
 }
 
 *, *::before, *::after {
@@ -62,37 +66,32 @@ body {
   -moz-osx-font-smoothing: grayscale;
   background-color: var(--bg-page);
   color: var(--text-primary);
-  transition: background-color 0.25s ease, color 0.25s ease;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-/* Ambient multi-layer backdrop */
 .app-backdrop {
   position: fixed;
   inset: 0;
   z-index: 0;
   pointer-events: none;
   background:
-    radial-gradient(ellipse 75% 55% at 12% 0%, rgba(13, 148, 136, 0.13) 0%, transparent 62%),
-    radial-gradient(ellipse 65% 50% at 88% 8%, rgba(14, 165, 233, 0.11) 0%, transparent 58%),
-    radial-gradient(ellipse 55% 60% at 50% 100%, rgba(16, 185, 129, 0.08) 0%, transparent 62%);
+    radial-gradient(ellipse 70% 50% at 10% 0%, rgba(13, 148, 136, 0.08) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 45% at 92% 4%, rgba(6, 182, 212, 0.08) 0%, transparent 55%);
 }
 
 html[data-theme="dark"] .app-backdrop {
   background:
-    radial-gradient(ellipse 75% 55% at 12% 0%, rgba(20, 184, 166, 0.14) 0%, transparent 62%),
-    radial-gradient(ellipse 65% 50% at 88% 8%, rgba(56, 189, 248, 0.12) 0%, transparent 58%),
-    radial-gradient(ellipse 55% 60% at 50% 100%, rgba(16, 185, 129, 0.07) 0%, transparent 62%);
+    radial-gradient(ellipse 70% 50% at 10% 0%, rgba(20, 184, 166, 0.11) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 45% at 92% 4%, rgba(34, 211, 238, 0.09) 0%, transparent 55%);
 }
 
-/* Scrollbar */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(13, 148, 136, 0.45); border-radius: 9999px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(13, 148, 136, 0.75); }
+::-webkit-scrollbar-thumb { background: rgba(13, 148, 136, 0.42); border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(13, 148, 136, 0.72); }
 
-/* Keyframes */
 @keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(12px); }
+  from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
 @keyframes pulse-soft {
@@ -109,21 +108,20 @@ html[data-theme="dark"] .app-backdrop {
   100% { background-position: 200% 0; }
 }
 
-.animate-fade-in-up { animation: fadeInUp 0.35s cubic-bezier(0.22, 0.68, 0, 1.1) forwards; }
+.animate-fade-in-up { animation: fadeInUp 0.28s ease-out forwards; }
 .animate-pulse-soft { animation: pulse-soft 2.2s ease-in-out infinite; }
 .typing-dot { animation: typing-dot 1.3s ease-in-out infinite; }
 .typing-dot:nth-child(2) { animation-delay: 0.18s; }
 .typing-dot:nth-child(3) { animation-delay: 0.36s; }
 
-/* Surface cards */
 .surface-card, .glass-card {
   background: var(--bg-surface);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   border: 1px solid var(--border-subtle);
-  border-radius: 18px;
+  border-radius: 16px;
   box-shadow: var(--shadow-card);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease, background-color 0.25s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease, background-color 0.2s ease;
 }
 
 .interactive-card:hover {
@@ -134,10 +132,10 @@ html[data-theme="dark"] .app-backdrop {
 
 .glass-nav {
   background: var(--bg-nav);
-  backdrop-filter: blur(20px) saturate(1.6);
-  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
   border-bottom: 1px solid var(--border-subtle);
-  box-shadow: 0 2px 18px rgba(15, 23, 42, 0.05);
+  box-shadow: 0 2px 16px rgba(11, 30, 59, 0.05);
 }
 
 .skeleton {
@@ -147,7 +145,6 @@ html[data-theme="dark"] .app-backdrop {
   border-radius: 10px;
 }
 
-/* Inputs */
 .saas-input {
   background: var(--bg-input);
   color: var(--text-primary);
@@ -155,7 +152,7 @@ html[data-theme="dark"] .app-backdrop {
   border-radius: 12px;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
-.saas-input:focus {
+.saas-input:focus, .saas-input:focus-within {
   outline: none;
   border-color: var(--accent-teal);
   box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.14);
@@ -164,22 +161,21 @@ html[data-theme="dark"] .app-backdrop {
   color: var(--text-faint);
 }
 
-/* Chat bubbles */
 .chat-bubble-user {
-  background: linear-gradient(135deg, #0d9488, #0284c7);
+  background: linear-gradient(135deg, #0d9488, #0891b2);
   color: #ffffff;
-  border-radius: 18px 18px 4px 18px;
+  border-radius: 16px 16px 4px 16px;
   padding: 12px 16px;
   max-width: 78%;
   font-size: 14px;
   line-height: 1.55;
-  box-shadow: 0 4px 14px rgba(13, 148, 136, 0.24);
+  box-shadow: 0 4px 12px rgba(13, 148, 136, 0.24);
 }
 
 .chat-bubble-ai {
   background: var(--bg-surface-solid);
   color: var(--text-primary);
-  border-radius: 18px 18px 18px 4px;
+  border-radius: 16px 16px 16px 4px;
   padding: 14px 16px;
   max-width: 86%;
   font-size: 14px;
@@ -189,16 +185,16 @@ html[data-theme="dark"] .app-backdrop {
 }
 
 .btn-brand {
-  background: linear-gradient(135deg, #0d9488, #0ea5e9);
+  background: linear-gradient(135deg, #0d9488, #0891b2);
   color: #ffffff;
   font-weight: 600;
   border-radius: 12px;
-  box-shadow: 0 4px 14px rgba(13, 148, 136, 0.25);
+  box-shadow: 0 3px 12px rgba(13, 148, 136, 0.25);
   transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
 }
 .btn-brand:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(13, 148, 136, 0.34);
+  box-shadow: 0 6px 16px rgba(13, 148, 136, 0.34);
 }
 .btn-brand:disabled {
   opacity: 0.5;

@@ -1,100 +1,72 @@
-# BreatheBetter AI — Smart Air Quality Monitoring & Health Assistant
+# BreatheBetter AI — Smart Air Quality Monitoring & Health Intelligence Platform
 
-A modern, full-stack environmental intelligence web application built with **React, Tailwind CSS, Recharts, and FastAPI**, powered by real-time **Open-Meteo Air Quality & Weather APIs**.
+A full-stack environmental intelligence SaaS platform powered by **React 19, Vite 8, Tailwind CSS v4, Recharts, Node.js/Express, SQLite/PostgreSQL**, and real-time **Open-Meteo + optional IQAir** APIs.
 
 ---
 
-## Features
+## Key Modules
 
 | Module | Capabilities |
 |---|---|
-| **Dashboard** | Live US AQI gauge, PM2.5, PM10, NO₂, O₃, CO, SO₂ with WHO 2021 threshold bars, live weather conditions, global city autocomplete, browser geolocation, and 24h/7-day trend charts |
-| **AI Health Assistant** | Context-aware conversational assistant covering air pollution health risks, sensitive groups (children, seniors, asthma), plain-language pollutant breakdowns, and optional Gemini / OpenAI / FastAPI integration |
-| **Daily Planner** | Computes the cleanest outdoor hour from hourly AQI data, walking/cycling/exercise suitability, daily pollution alerts, indoor alternatives, and a morning/midday/evening routine schedule |
-| **Indoor Air Quality** | Clearly separates mathematically estimated indoor AQI from optional user home PM2.5 sensor input, dynamic ventilation schedules, room-size CADR purifier calculator, and room-by-room tips |
-| **Eco Impact** | Personal commute carbon footprint comparison (Car, Two-Wheeler, Bus, Metro, Walk/Cycle), interactive low-emission checklist, and live Eco Score & CO₂ progress charts |
-| **Community** | Regional AQI updates, categorized local pollution reporting (waste burning, construction dust, vehicle smoke, industrial), clean-air challenges, and leaderboard |
-| **Settings & Alerts** | User personalization profile, **Light & Dark mode**, °C/°F units, custom AQI alert threshold slider/presets, weather stagnation alerts, API key testing, and AQI measurement reference guide |
+| **Dashboard** | Live US AQI gauge, PM2.5, PM10, NO₂, SO₂, CO, O₃ with WHO 2021 threshold indicators, full weather (Temp, Feels-like, Humidity, Wind speed & direction, Pressure, UV, Sky), pollutant comparison chart, hourly/daily trends, multi-day forecast, and CSV/PDF export |
+| **AI Health Assistant** | Secure server-side `/api/ai/chat` endpoint supporting Google Gemini / OpenAI with live telemetry injection, multi-turn chat history, and contextual environmental fallback |
+| **Smart Daily Planner** | Forecast-driven outdoor windows, walking/cycling/sports guidance, full CRUD activity scheduling (Create, Edit, Delete, Complete), and Daily/Weekly schedule views |
+| **Indoor Air Quality** | Explicitly marks indoor readings as `Unavailable` unless a physical indoor PM2.5 sensor reading is connected; includes dynamic ventilation windows, CADR purifier sizing, and daily indoor checklist |
+| **Eco Impact** | Interactive Carbon Footprint Calculator (distance, transport mode, fuel/EV powertrain, daily kWh), weekly/monthly CO₂ charts, sustainability score, and persistent action logs |
+| **Community Platform** | Persistent discussions, pollution reports, categories, edit/delete ownership controls, likes, comments, and moderation reporting |
+| **Analytics, Map & Education** | 7-day trends, 24h category distribution, stored snapshot archive, multi-city live comparison, interactive global/India station map, CSV/PDF reports, and AQI learning center |
+| **Account, Alerts & Settings** | JWT auth (register, login, forgot/reset password), saved cities, Light/Dark themes, custom AQI threshold alerts, notification center, AQI standards, and privacy controls |
 
 ---
 
-## Tech Stack
+## Local Development
 
-- **Frontend:** React 19, Vite 8, Tailwind CSS v4
-- **Charts & Icons:** Recharts, Lucide React
-- **Live Data APIs:** Open-Meteo Air Quality API & Weather Forecast API (zero API key required), Open-Meteo Geocoding API, OpenStreetMap Nominatim reverse geocoding, optional OpenWeatherMap overlay
-- **Backend (Optional):** Python FastAPI (`backend/main.py`)
-- **AI Chat:** Google Gemini / OpenAI API (optional) + built-in live context-aware engine
-
----
-
-## Quick Start
-
-### 1. Frontend
-
+### 1. Install Dependencies
 ```bash
 npm install
 cp .env.example .env.local
+```
+
+### 2. Run API Server + Frontend Dev Server
+Open two terminals:
+
+**Terminal 1 — Node.js Express Backend (`http://localhost:8000`)**
+```bash
+npm run server
+```
+
+**Terminal 2 — Vite React Frontend (`http://localhost:5175`)**
+```bash
 npm run dev
 ```
 
-Runs at **http://localhost:5175**
+Vite automatically proxies `/api/*` requests to `http://localhost:8000` so API keys remain strictly on the server.
 
-### 2. Backend (Optional)
-
+### 3. Verify Automated Checks
 ```bash
-cd backend
-pip install -r requirements.txt
-cp .env.example .env
-uvicorn main:app --reload
-```
-
-API docs available at **http://localhost:8000/docs**
-
----
-
-## Environment Variables
-
-Copy `.env.example` to `.env.local` (frontend) and `backend/.env.example` to `backend/.env` (backend).
-
-- Live global AQI, pollutants, and weather work **out of the box via Open-Meteo** with no API keys required.
-- Optional keys (`VITE_OPENWEATHER_API_KEY`, `VITE_GEMINI_API_KEY`, `OPENAI_API_KEY`) can also be configured directly inside **Settings → API Keys** in the UI.
-
----
-
-## Project Structure
-
-```text
-breathebetter-ai/
-├── index.html
-├── package.json
-├── vite.config.js
-├── .env.example
-├── src/
-│   ├── App.jsx
-│   ├── index.css
-│   ├── main.jsx
-│   ├── data/mockData.js
-│   ├── services/airQualityService.js
-│   └── components/
-│       ├── Navbar.jsx
-│       ├── AQIGauge.jsx
-│       ├── Dashboard.jsx
-│       ├── ChatAssistant.jsx
-│       ├── DailyPlanner.jsx
-│       ├── IndoorAir.jsx
-│       ├── EcoImpact.jsx
-│       ├── Community.jsx
-│       └── Settings.jsx
-└── backend/
-    ├── main.py
-    ├── requirements.txt
-    └── .env.example
+npm run lint
+npm run build
+npm run test:api
 ```
 
 ---
 
-## Disclaimer
+## Vercel Production Deployment
 
-- Indoor AQI estimates (unless entered from a physical home monitor) and carbon/fuel savings are **estimates** based on standard reference factors.
-- AI Health Assistant guidance is informational and **not a substitute for professional medical advice**.
+This repository includes `vercel.json` and `api/index.js` so both the Vite SPA and Express `/api/*` backend deploy together seamlessly on Vercel:
+
+1. Push updates to GitHub (`Swastikasarkar299/Breathebetter-ai`).
+2. In **Vercel → Project Settings → Environment Variables**, configure:
+   - `JWT_SECRET` *(required for auth tokens)*
+   - `GEMINI_API_KEY` or `OPENAI_API_KEY` *(optional for external LLM responses)*
+   - `IQAIR_API_KEY` *(optional for IQAir station data)*
+   - `SUPABASE_URL` & `SUPABASE_SERVICE_ROLE_KEY` *(optional hosted Postgres; apply `server/supabase-schema.sql`)*
+3. Vercel runs `npm run build` (`dist/`) and routes `/api/*` through `api/index.js`.
+
+---
+
+## Transparency & Medical Disclaimer
+
+- Live ambient air quality and weather come from **Open-Meteo** (and **IQAir** when `IQAIR_API_KEY` is configured). Offline/unavailable states are explicitly labeled and never disguised as live data.
+- Indoor readings remain labeled **Unavailable** unless user sensor data is entered.
+- Carbon footprint figures are estimates using standard DEFRA/EPA/grid factors. Guidance is informational and not a substitute for professional medical advice.

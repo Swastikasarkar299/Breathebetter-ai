@@ -1,208 +1,186 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  Home, Wind, ShieldCheck, Fan, Sprout, Gauge, Info, CheckCircle2,
-  AlertTriangle, Lock, Unlock,
+  Home, Wind, Fan, Sprout, Gauge, Info, CheckCircle2, AlertTriangle, Lock, Unlock, ShieldAlert, Droplets,
 } from 'lucide-react';
 import {
   indoorTips, getAqiCategory, getDynamicVentilationSchedule,
 } from '../data/mockData';
 
+const INDOOR_CHECKLIST_DEFAULT = [
+  { id: 'ic1', task: 'Seal perimeter window gaps & close street-facing windows during rush hour', done: true },
+  { id: 'ic2', task: 'Run kitchen exhaust fan before and during stove cooking', done: true },
+  { id: 'ic3', task: 'Wet-mop floors instead of dry sweeping to trap fine settled PM2.5', done: false },
+  { id: 'ic4', task: 'Maintain indoor relative humidity between 40% and 55%', done: false },
+  { id: 'ic5', task: 'Keep incense, scented candles, and tobacco smoke completely indoors-free', done: true },
+  { id: 'ic6', task: 'Leave outdoor shoes at the entrance door-mat', done: true },
+];
+
 const ROOM_SIZES = [
-  { id: 'small', label: 'Bedroom (< 150 sq ft)', cadr: '150–220 m³/h', diy: 'Single 20" box fan + MERV-13 filter' },
+  { id: 'small', label: 'Bedroom (< 150 sq ft)', cadr: '150–220 m³/h', diy: 'Single box fan + sealed MERV-13 filter' },
   { id: 'medium', label: 'Living Room (150–300 sq ft)', cadr: '250–360 m³/h', diy: 'True HEPA H13 unit or 2-filter box fan' },
-  { id: 'large', label: 'Open Hall (300–500 sq ft)', cadr: '400–550 m³/h', diy: '4-filter Corsi-Rosenthal cube + room sealing' },
+  { id: 'large', label: 'Open Hall (300–500 sq ft)', cadr: '400–550 m³/h', diy: '4-filter Corsi-Rosenthal cube' },
 ];
 
-const PURIFIER_OPTIONS = [
-  {
-    name: 'True HEPA H13 Purifier',
-    badge: 'Recommended Commercial',
-    efficiency: '99.97% of 0.3 µm PM2.5',
-    cost: '₹4,500–₹12,000',
-    accent: '#0d9488',
-    notes: [
-      'Choose True HEPA H13 (avoid ozone-generating ionizers)',
-      'Size CADR to deliver 4–5 air changes per hour (ACH)',
-      'Run on medium-auto overnight in sealed bedrooms',
-    ],
-  },
-  {
-    name: 'DIY Box-Fan MERV-13 Purifier',
-    badge: 'Budget Alternative',
-    efficiency: '60%–80% PM2.5 reduction',
-    cost: '₹400–₹900',
-    accent: '#10b981',
-    notes: [
-      'Seal a MERV-13 or HEPA panel filter tightly to fan intake',
-      'Use painter tape around edges so air cannot bypass the media',
-      'Replace filter panel every 3–6 months or when visibly grey',
-    ],
-  },
-  {
-    name: 'Activated Carbon Pre-Filter',
-    badge: 'Gases & Cooking Odors',
-    efficiency: 'Adsorbs VOCs & NO₂',
-    cost: '₹300–₹1,200',
-    accent: '#6366f1',
-    notes: [
-      'Pair carbon pellets/sheets with HEPA for kitchen or roadside homes',
-      'Targets traffic fumes and indoor volatile organic compounds',
-      'Does not trap fine dust alone — always pair with particulate filter',
-    ],
-  },
-];
-
-const AIR_PLANTS = [
-  { name: 'Snake Plant', sci: 'Sansevieria trifasciata', benefit: 'Low-light tolerant; evening O₂ exchange', care: 'Water every 2–3 weeks' },
-  { name: 'Peace Lily', sci: 'Spathiphyllum', benefit: 'Helps reduce trace indoor VOCs', care: 'Indirect light, weekly water (keep away from pets)' },
-  { name: 'Spider Plant', sci: 'Chlorophytum comosum', benefit: 'Resilient & pet/child friendly', care: 'Bright indirect light, wipe dusty leaves weekly' },
-  { name: 'Pothos / Money Plant', sci: 'Epipremnum aureum', benefit: 'Thrives in indoor apartments', care: 'Minimal watering, tolerates low light' },
-];
+function pm25ToUsAqi(pm25 = 0) {
+  const c = Math.max(0, Number(pm25) || 0);
+  const bps = [
+    [0, 12.0, 0, 50],
+    [12.1, 35.4, 51, 100],
+    [35.5, 55.4, 101, 150],
+    [55.5, 150.4, 151, 200],
+    [150.5, 250.4, 201, 300],
+    [250.5, 500.4, 301, 500],
+  ];
+  for (const [cLo, cHi, iLo, iHi] of bps) {
+    if (c <= cHi) return Math.round(((iHi - iLo) / (cHi - cLo)) * (c - cLo) + iLo);
+  }
+  return 500;
+}
 
 export default function IndoorAir({ airQuality }) {
   const [activeSection, setActiveSection] = useState('ventilation');
-  const [indoorMode, setIndoorMode] = useState('closed'); // closed | open | hepa
-  const [sensorReading, setSensorReading] = useState('');
+  const [sensorPm25, setSensorPm25] = useState(() => {
+    try { return localStorage.getItem('bb_indoor_sensor_pm25') || ''; } catch { return ''; }
+  });
   const [roomSizeId, setRoomSizeId] = useState('medium');
+  const [checklist, setChecklist] = useState(() => {
+    try {
+      const saved = localStorage.getItem('bb_indoor_checklist');
+      return saved ? JSON.parse(saved) : INDOOR_CHECKLIST_DEFAULT;
+    } catch { return INDOOR_CHECKLIST_DEFAULT; }
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem('bb_indoor_sensor_pm25', sensorPm25); } catch {}
+  }, [sensorPm25]);
+
+  useEffect(() => {
+    try { localStorage.setItem('bb_indoor_checklist', JSON.stringify(checklist)); } catch {}
+  }, [checklist]);
 
   const outdoorAqi = airQuality.aqi;
-  const outdoorCat = getAqiCategory(outdoorAqi);
+  const outdoorCat = getAqiCategory(outdoorAqi ?? 0);
   const schedule = getDynamicVentilationSchedule(airQuality);
 
-  // Compute transparent indoor estimate OR use user's actual sensor reading
-  const factorMap = { closed: 0.58, open: 0.84, hepa: 0.28 };
-  const hasManualSensor = sensorReading.trim() !== '' && !Number.isNaN(Number(sensorReading));
-  const estIndoorAqi = hasManualSensor
-    ? Math.max(0, Math.round(Number(sensorReading) * 2.1))
-    : Math.max(10, Math.round(outdoorAqi * (factorMap[indoorMode] || 0.58)));
-  const indoorCat = getAqiCategory(estIndoorAqi);
-
+  const hasSensorConnected = sensorPm25.trim() !== '' && !Number.isNaN(Number(sensorPm25)) && Number(sensorPm25) >= 0;
+  const measuredIndoorAqi = hasSensorConnected ? pm25ToUsAqi(Number(sensorPm25)) : null;
+  const indoorCat = measuredIndoorAqi != null ? getAqiCategory(measuredIndoorAqi) : null;
   const selectedRoom = ROOM_SIZES.find((r) => r.id === roomSizeId) || ROOM_SIZES[1];
 
-  const sections = [
-    { id: 'ventilation', label: 'Ventilation Timing', Icon: Wind },
-    { id: 'room', label: 'Room Prevention', Icon: Home },
-    { id: 'purifiers', label: 'Purifiers & CADR', Icon: Fan },
-    { id: 'plants', label: 'Healthy Environment', Icon: Sprout },
-  ];
+  const toggleCheck = (id) => {
+    setChecklist((prev) => prev.map((c) => (c.id === id ? { ...c, done: !c.done } : c)));
+  };
 
   return (
     <div className="space-y-5">
-      {/* Measurement vs Estimation Clarity Card */}
+      {/* Honest Indoor Sensor vs Outdoor API Transparency Panel */}
       <div className="surface-card p-5 space-y-4">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <span
-                className="text-[11px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full"
-                style={{
-                  background: hasManualSensor ? 'rgba(16, 185, 129, 0.14)' : 'rgba(245, 158, 11, 0.14)',
-                  color: hasManualSensor ? '#10b981' : '#d97706',
-                }}
-              >
-                {hasManualSensor ? 'User Sensor Input' : 'Estimated Model · Not a Physical Sensor'}
-              </span>
-            </div>
-            <h2 className="text-lg font-bold mt-1.5" style={{ color: 'var(--text-primary)' }}>
-              Outdoor vs. Indoor Air Comparison
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <span
+              className="text-[11px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full inline-flex items-center gap-1"
+              style={{
+                background: hasSensorConnected ? 'rgba(16, 185, 129, 0.14)' : 'rgba(245, 158, 11, 0.14)',
+                color: hasSensorConnected ? '#10b981' : '#d97706',
+              }}
+            >
+              {hasSensorConnected ? 'User Indoor Monitor Reading' : 'Indoor Sensor Not Connected · Measurement Unavailable'}
+            </span>
+            <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
+              Indoor vs. Outdoor Air Status
             </h2>
-            <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
-              {hasManualSensor
-                ? 'Displaying AQI converted from your entered indoor PM2.5 monitor reading.'
-                : 'Indoor AQI below is mathematically estimated from live outdoor AQI using standard building infiltration ratios (not measured by an indoor sensor).'}
+            <p className="text-xs max-w-2xl" style={{ color: 'var(--text-muted)' }}>
+              Outdoor APIs (Open-Meteo / IQAir) cannot measure air inside your home. Indoor air quality is marked <strong>Unavailable</strong> until you connect or enter a reading from a physical indoor PM2.5 monitor.
             </p>
           </div>
 
-          {/* Optional actual sensor input */}
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-2 px-3 py-2 rounded-xl saas-input">
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <div className="flex items-center gap-2 px-3 py-2 saas-input">
               <Gauge size={14} style={{ color: 'var(--accent-teal)' }} />
               <input
                 type="number"
                 min="0"
                 max="500"
-                value={sensorReading}
-                onChange={(e) => setSensorReading(e.target.value)}
-                placeholder="Enter home PM2.5 sensor (µg/m³)"
-                className="text-xs bg-transparent outline-none w-48"
+                step="0.5"
+                value={sensorPm25}
+                onChange={(e) => setSensorPm25(e.target.value)}
+                placeholder="Enter home sensor PM2.5 (µg/m³)"
+                className="text-xs bg-transparent outline-none w-52"
                 style={{ color: 'var(--text-primary)' }}
               />
             </div>
-            {hasManualSensor && (
+            {hasSensorConnected && (
               <button
-                onClick={() => setSensorReading('')}
-                className="text-xs font-semibold px-2.5 py-2 rounded-xl"
+                onClick={() => setSensorPm25('')}
+                className="px-3 py-2 rounded-xl text-xs font-semibold"
                 style={{ background: 'var(--bg-subtle)', color: 'var(--text-secondary)' }}
               >
-                Clear
+                Disconnect
               </button>
             )}
           </div>
         </div>
 
-        {/* Comparison Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="p-4 rounded-2xl" style={{ background: outdoorCat.bg, border: `1px solid ${outdoorCat.color}30` }}>
-            <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: outdoorCat.color }}>
-              Outdoor ({airQuality.isLive ? 'Live API' : 'Reference'})
+          <div className="p-4 rounded-2xl" style={{ background: airQuality.isLive ? outdoorCat.bg : 'var(--bg-subtle)' }}>
+            <div className="text-xs font-bold uppercase tracking-wider" style={{ color: airQuality.isLive ? outdoorCat.color : 'var(--text-muted)' }}>
+              Outdoor Ambient ({airQuality.isLive ? 'Live API' : 'Unavailable'})
             </div>
-            <div className="text-3xl font-black mt-1" style={{ color: outdoorCat.color }}>
-              {outdoorAqi}
+            <div className="text-3xl font-black mt-1" style={{ color: airQuality.isLive ? outdoorCat.color : 'var(--text-muted)' }}>
+              {outdoorAqi ?? 'N/A'}
             </div>
             <div className="text-xs font-semibold mt-0.5" style={{ color: 'var(--text-primary)' }}>
-              {outdoorCat.label} · PM2.5 {airQuality.pm25} µg/m³
+              {airQuality.isLive ? `${outdoorCat.label} · PM2.5 ${airQuality.pm25} µg/m³` : 'Outdoor feed offline'}
             </div>
           </div>
 
-          <div className="p-4 rounded-2xl" style={{ background: indoorCat.bg, border: `1px solid ${indoorCat.color}30` }}>
-            <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: indoorCat.color }}>
-              Indoor ({hasManualSensor ? 'Your Sensor' : 'Estimated'})
+          <div
+            className="p-4 rounded-2xl"
+            style={{
+              background: hasSensorConnected ? indoorCat.bg : 'var(--bg-subtle)',
+              border: `1px solid ${hasSensorConnected ? `${indoorCat.color}30` : 'var(--border-subtle)'}`,
+            }}
+          >
+            <div className="text-xs font-bold uppercase tracking-wider" style={{ color: hasSensorConnected ? indoorCat.color : 'var(--text-muted)' }}>
+              Indoor Reading ({hasSensorConnected ? 'Entered Sensor Data' : 'Unavailable'})
             </div>
-            <div className="text-3xl font-black mt-1" style={{ color: indoorCat.color }}>
-              {hasManualSensor ? estIndoorAqi : `~${estIndoorAqi}`}
+            <div className="text-3xl font-black mt-1" style={{ color: hasSensorConnected ? indoorCat.color : 'var(--text-faint)' }}>
+              {hasSensorConnected ? measuredIndoorAqi : 'Unavailable'}
             </div>
-            <div className="text-xs font-semibold mt-0.5" style={{ color: 'var(--text-primary)' }}>
-              {indoorCat.label} · {hasManualSensor ? `${sensorReading} µg/m³ entered` : 'Simulated I/O ratio'}
+            <div className="text-xs font-semibold mt-0.5" style={{ color: 'var(--text-muted)' }}>
+              {hasSensorConnected
+                ? `${indoorCat.label} · ${sensorPm25} µg/m³ measured indoors`
+                : 'No indoor PM2.5 sensor connected'}
             </div>
           </div>
 
-          <div className="p-4 rounded-2xl flex flex-col justify-between" style={{ background: 'var(--bg-subtle)' }}>
-            <div className="text-xs font-bold" style={{ color: 'var(--text-primary)' }}>
-              Home Setup Simulation
+          <div className="p-4 rounded-2xl space-y-1.5" style={{ background: 'var(--bg-subtle)' }}>
+            <div className="flex items-center gap-1.5 text-xs font-bold" style={{ color: 'var(--accent-teal)' }}>
+              <Droplets size={14} /> Target Indoor Humidity
             </div>
-            <div className="flex flex-wrap gap-1.5 mt-2">
-              {[
-                { id: 'closed', label: 'Windows Sealed' },
-                { id: 'open', label: 'Windows Open' },
-                { id: 'hepa', label: 'HEPA Active' },
-              ].map((m) => (
-                <button
-                  key={m.id}
-                  onClick={() => setIndoorMode(m.id)}
-                  className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-all"
-                  style={
-                    indoorMode === m.id && !hasManualSensor
-                      ? { background: 'linear-gradient(135deg, #0d9488, #0ea5e9)', color: '#fff' }
-                      : { background: 'var(--bg-surface-solid)', color: 'var(--text-secondary)' }
-                  }
-                >
-                  {m.label}
-                </button>
-              ))}
+            <div className="text-xl font-black" style={{ color: 'var(--text-primary)' }}>40% – 55% RH</div>
+            <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+              Outdoor RH is {airQuality.humidity ?? 'N/A'}%. Above 60% indoors encourages mold & dust mites; below 30% irritates airways.
             </div>
           </div>
         </div>
 
-        {/* Sub-Navigation */}
+        {/* Section Pills */}
         <div className="flex gap-2 overflow-x-auto pt-1">
-          {sections.map(({ id, label, Icon }) => (
+          {[
+            { id: 'ventilation', label: 'Ventilation Schedule', Icon: Wind },
+            { id: 'checklist', label: 'Daily Indoor Checklist', Icon: CheckCircle2 },
+            { id: 'room', label: 'Room Prevention & Dust', Icon: Home },
+            { id: 'purifiers', label: 'Air Purifiers & CADR', Icon: Fan },
+            { id: 'plants', label: 'Plants & Science', Icon: Sprout },
+          ].map(({ id, label, Icon }) => (
             <button
               key={id}
               onClick={() => setActiveSection(id)}
               className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold flex-shrink-0 transition-all"
               style={
                 activeSection === id
-                  ? { background: 'linear-gradient(135deg, #0d9488, #0ea5e9)', color: '#ffffff' }
+                  ? { background: 'linear-gradient(135deg, #0d9488, #0891b2)', color: '#fff' }
                   : { background: 'var(--bg-subtle)', color: 'var(--text-secondary)' }
               }
             >
@@ -212,44 +190,30 @@ export default function IndoorAir({ airQuality }) {
         </div>
       </div>
 
-      {/* Ventilation Section */}
       {activeSection === 'ventilation' && (
         <div className="surface-card p-5 space-y-3">
-          <div>
-            <h3 className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>
-              Dynamic Window & Ventilation Schedule — {airQuality.location.split(',')[0]}
-            </h3>
-            <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
-              Calculated from current AQI ({outdoorAqi}), hourly projection, and wind speed ({airQuality.windSpeed} km/h).
-            </p>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <h3 className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>
+                Ventilation Reminders & Schedule — {airQuality.location.split(',')[0]}
+              </h3>
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                Derived from current outdoor AQI ({outdoorAqi ?? 'N/A'}) and wind speed ({airQuality.windSpeed ?? 'N/A'} km/h).
+              </p>
+            </div>
           </div>
           <div className="space-y-2.5">
             {schedule.map((slot, idx) => (
-              <div
-                key={idx}
-                className="flex flex-col sm:flex-row sm:items-center gap-3 p-3.5 rounded-xl"
-                style={{ background: `${slot.color}12`, border: `1px solid ${slot.color}30` }}
-              >
-                <div className="flex items-center gap-2.5 w-36 flex-shrink-0">
-                  {slot.status === 'open' ? (
-                    <Unlock size={16} style={{ color: slot.color }} />
-                  ) : slot.status === 'closed' ? (
-                    <Lock size={16} style={{ color: slot.color }} />
-                  ) : (
-                    <AlertTriangle size={16} style={{ color: slot.color }} />
-                  )}
-                  <span className="text-xs font-bold" style={{ color: 'var(--text-primary)' }}>
-                    {slot.time}
-                  </span>
+              <div key={idx} className="flex flex-col sm:flex-row sm:items-center gap-3 p-3.5 rounded-xl" style={{ background: `${slot.color}12`, border: `1px solid ${slot.color}30` }}>
+                <div className="flex items-center gap-2 w-36 flex-shrink-0">
+                  {slot.status === 'open' ? <Unlock size={15} style={{ color: slot.color }} /> : slot.status === 'closed' ? <Lock size={15} style={{ color: slot.color }} /> : <AlertTriangle size={15} style={{ color: slot.color }} />}
+                  <span className="text-xs font-bold" style={{ color: 'var(--text-primary)' }}>{slot.time}</span>
                 </div>
                 <div className="flex-1">
                   <div className="text-xs font-bold" style={{ color: slot.color }}>{slot.label}</div>
                   <div className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>{slot.reason}</div>
                 </div>
-                <span
-                  className="text-[11px] font-bold px-2.5 py-1 rounded-full self-start sm:self-auto"
-                  style={{ background: `${slot.color}22`, color: slot.color }}
-                >
+                <span className="text-[11px] font-bold px-2.5 py-1 rounded-full self-start sm:self-auto" style={{ background: `${slot.color}22`, color: slot.color }}>
                   {slot.status.toUpperCase()}
                 </span>
               </div>
@@ -258,130 +222,114 @@ export default function IndoorAir({ airQuality }) {
         </div>
       )}
 
-      {/* Room Prevention Tips */}
-      {activeSection === 'room' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {indoorTips.map((room) => (
-            <div key={room.id} className="surface-card p-5">
-              <div className="flex items-center gap-2.5 mb-3">
-                <div
-                  className="w-9 h-9 rounded-xl flex items-center justify-center"
-                  style={{ background: `${room.color}18`, color: room.color }}
-                >
-                  <Home size={17} />
-                </div>
-                <h3 className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>{room.room}</h3>
-              </div>
-              <div className="space-y-2.5">
-                {room.tips.map((tip, i) => (
-                  <div key={i} className="flex items-start gap-2 text-xs leading-relaxed">
-                    <CheckCircle2 size={14} className="text-emerald-500 flex-shrink-0 mt-0.5" />
-                    <span style={{ color: 'var(--text-secondary)' }}>{tip}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Air Purifiers & CADR Sizing */}
-      {activeSection === 'purifiers' && (
-        <div className="space-y-4">
-          <div className="surface-card p-5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-              <div>
-                <h3 className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
-                  Room Size & CADR Calculator
-                </h3>
-                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                  Select room dimensions to size a commercial HEPA purifier or DIY filter correctly.
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {ROOM_SIZES.map((r) => (
-                  <button
-                    key={r.id}
-                    onClick={() => setRoomSizeId(r.id)}
-                    className="px-3 py-1.5 rounded-xl text-xs font-semibold"
-                    style={
-                      roomSizeId === r.id
-                        ? { background: 'linear-gradient(135deg, #0d9488, #0ea5e9)', color: '#fff' }
-                        : { background: 'var(--bg-subtle)', color: 'var(--text-secondary)' }
-                    }
-                  >
-                    {r.label.split(' (')[0]}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-              <div className="p-3.5 rounded-xl" style={{ background: 'var(--bg-subtle)' }}>
-                <div style={{ color: 'var(--text-muted)' }}>Selected Area</div>
-                <div className="font-bold mt-0.5" style={{ color: 'var(--text-primary)' }}>{selectedRoom.label}</div>
-              </div>
-              <div className="p-3.5 rounded-xl" style={{ background: 'var(--bg-subtle)' }}>
-                <div style={{ color: 'var(--text-muted)' }}>Target CADR (4–5 ACH)</div>
-                <div className="font-bold mt-0.5" style={{ color: 'var(--accent-teal)' }}>{selectedRoom.cadr}</div>
-              </div>
-              <div className="p-3.5 rounded-xl" style={{ background: 'var(--bg-subtle)' }}>
-                <div style={{ color: 'var(--text-muted)' }}>Recommended Setup</div>
-                <div className="font-bold mt-0.5" style={{ color: 'var(--text-primary)' }}>{selectedRoom.diy}</div>
-              </div>
-            </div>
+      {activeSection === 'checklist' && (
+        <div className="surface-card p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>
+              Daily Indoor Environment Improvement Checklist
+            </h3>
+            <span className="text-xs font-bold" style={{ color: 'var(--accent-teal)' }}>
+              {checklist.filter((c) => c.done).length}/{checklist.length} completed
+            </span>
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {PURIFIER_OPTIONS.map((p) => (
-              <div key={p.name} className="surface-card p-5 space-y-3">
-                <span
-                  className="text-[11px] font-bold px-2.5 py-0.5 rounded-full inline-block"
-                  style={{ background: `${p.accent}18`, color: p.accent }}
-                >
-                  {p.badge}
-                </span>
-                <h4 className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>{p.name}</h4>
-                <div className="text-xs font-semibold" style={{ color: 'var(--accent-teal)' }}>
-                  {p.efficiency} · {p.cost}
-                </div>
-                <div className="space-y-1.5 pt-2 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
-                  {p.notes.map((n, i) => (
-                    <div key={i} className="flex gap-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                      <ShieldCheck size={13} className="flex-shrink-0 mt-0.5" style={{ color: p.accent }} />
-                      <span>{n}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {checklist.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => toggleCheck(item.id)}
+                className="p-3.5 rounded-xl flex items-center justify-between gap-3 text-left"
+                style={{
+                  background: item.done ? 'rgba(16, 185, 129, 0.08)' : 'var(--bg-subtle)',
+                  border: `1px solid ${item.done ? 'rgba(16, 185, 129, 0.25)' : 'var(--border-subtle)'}`,
+                }}
+              >
+                <span className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>{item.task}</span>
+                <CheckCircle2 size={17} className="flex-shrink-0" style={{ color: item.done ? '#10b981' : 'var(--text-faint)' }} />
+              </button>
             ))}
           </div>
         </div>
       )}
 
-      {/* Healthy Indoor Environment */}
+      {activeSection === 'room' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {indoorTips.map((room) => (
+            <div key={room.id} className="surface-card p-5 space-y-2.5">
+              <div className="flex items-center gap-2 font-bold text-sm" style={{ color: room.color }}>
+                <Home size={16} /> <span>{room.room}</span>
+              </div>
+              {room.tips.map((tip, i) => (
+                <div key={i} className="flex gap-2 text-xs leading-relaxed">
+                  <CheckCircle2 size={14} className="text-emerald-500 flex-shrink-0 mt-0.5" />
+                  <span style={{ color: 'var(--text-secondary)' }}>{tip}</span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {activeSection === 'purifiers' && (
+        <div className="surface-card p-5 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>HEPA Purifier Sizing & CADR Guide</h3>
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Avoid ionizers/ozone purifiers; use True HEPA H13 + activated carbon.</p>
+            </div>
+            <div className="flex gap-1.5 flex-wrap">
+              {ROOM_SIZES.map((r) => (
+                <button
+                  key={r.id}
+                  onClick={() => setRoomSizeId(r.id)}
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold"
+                  style={roomSizeId === r.id ? { background: 'linear-gradient(135deg, #0d9488, #0891b2)', color: '#fff' } : { background: 'var(--bg-subtle)', color: 'var(--text-secondary)' }}
+                >
+                  {r.label.split(' (')[0]}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+            <div className="p-3.5 rounded-xl" style={{ background: 'var(--bg-subtle)' }}>
+              <div style={{ color: 'var(--text-muted)' }}>Room Dimensions</div>
+              <div className="font-bold mt-0.5" style={{ color: 'var(--text-primary)' }}>{selectedRoom.label}</div>
+            </div>
+            <div className="p-3.5 rounded-xl" style={{ background: 'var(--bg-subtle)' }}>
+              <div style={{ color: 'var(--text-muted)' }}>Required CADR (4–5 ACH)</div>
+              <div className="font-bold mt-0.5" style={{ color: 'var(--accent-teal)' }}>{selectedRoom.cadr}</div>
+            </div>
+            <div className="p-3.5 rounded-xl" style={{ background: 'var(--bg-subtle)' }}>
+              <div style={{ color: 'var(--text-muted)' }}>Recommended Filter</div>
+              <div className="font-bold mt-0.5" style={{ color: 'var(--text-primary)' }}>{selectedRoom.diy}</div>
+            </div>
+          </div>
+          <div className="p-3.5 rounded-xl flex items-start gap-2 text-xs" style={{ background: 'rgba(13, 148, 136, 0.08)', color: 'var(--text-secondary)' }}>
+            <ShieldAlert size={15} className="text-teal-500 flex-shrink-0 mt-0.5" />
+            <span>Keep bedroom doors and windows shut while running a purifier for 30+ minutes before sleep to reduce overnight PM2.5 exposure.</span>
+          </div>
+        </div>
+      )}
+
       {activeSection === 'plants' && (
-        <div className="space-y-4">
-          <div
-            className="surface-card p-4 flex items-start gap-2.5 text-xs"
-            style={{ background: 'rgba(14, 165, 233, 0.08)', borderColor: 'rgba(14, 165, 233, 0.25)' }}
-          >
-            <Info size={16} className="text-sky-500 flex-shrink-0 mt-0.5" />
-            <span style={{ color: 'var(--text-secondary)' }}>
-              <strong>Scientific Note:</strong> Houseplants support pleasant indoor humidity and low-level VOC absorption, but they do <strong>not</strong> filter fine PM2.5 particles like HEPA purifiers. Combine plants with source control and filtration.
+        <div className="surface-card p-5 space-y-3">
+          <div className="flex items-start gap-2 text-xs p-3 rounded-xl" style={{ background: 'rgba(6, 182, 212, 0.09)', color: 'var(--text-secondary)' }}>
+            <Info size={15} className="text-cyan-500 flex-shrink-0 mt-0.5" />
+            <span>
+              <strong>Evidence Note:</strong> NASA-inspired studies showed houseplants absorb trace VOCs in sealed chambers, but at room scale they do <strong>not</strong> replace HEPA filtration for PM2.5 smog. Use plants alongside source control & HEPA filtration.
             </span>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {AIR_PLANTS.map((plant) => (
-              <div key={plant.name} className="surface-card p-4 space-y-2">
-                <div className="flex items-center gap-2">
-                  <Sprout size={16} className="text-emerald-500" />
-                  <div className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>{plant.name}</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+            {[
+              { name: 'Snake Plant', note: 'Low-light hardy, minimal watering' },
+              { name: 'Spider Plant', note: 'Pet-safe & easy to maintain' },
+              { name: 'Peace Lily', note: 'Humidity tolerant (keep from pets)' },
+              { name: 'Pothos', note: 'Grows well in indirect apartment light' },
+            ].map((pl) => (
+              <div key={pl.name} className="p-3.5 rounded-xl" style={{ background: 'var(--bg-subtle)' }}>
+                <div className="font-bold flex items-center gap-1.5" style={{ color: 'var(--text-primary)' }}>
+                  <Sprout size={14} className="text-emerald-500" /> {pl.name}
                 </div>
-                <div className="text-[11px] italic" style={{ color: 'var(--text-faint)' }}>{plant.sci}</div>
-                <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>{plant.benefit}</div>
-                <div className="text-[11px] font-medium pt-1" style={{ color: 'var(--accent-teal)' }}>
-                  Care: {plant.care}
-                </div>
+                <div className="mt-1" style={{ color: 'var(--text-muted)' }}>{pl.note}</div>
               </div>
             ))}
           </div>
